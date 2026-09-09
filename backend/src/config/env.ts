@@ -14,7 +14,8 @@ const envSchema = z.object({
   REDIS_HOST: z.string().default("localhost"),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
+
+  GROQ_API_KEY: z.string(),
 });
 
 export const env = envSchema.parse(process.env);

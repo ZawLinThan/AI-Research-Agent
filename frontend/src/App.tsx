@@ -7,15 +7,10 @@ import {
   BookOpen,
   Bookmark,
   Check,
-  ChevronDown,
   ChevronRight,
-  CircleHelp,
-  Compass,
   FileText,
   FlaskConical,
-  FolderOpen,
   Globe2,
-  Layers3,
   Menu,
   Plus,
   Search,
@@ -23,75 +18,9 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import type { Brief } from "./types";
+import SideBar from "./components/SideBar";
 
-type Brief = {
-  id: string;
-  title: string;
-  category: string;
-  date: string;
-  prompt: string;
-  depth: string;
-  scope: string;
-  example?: boolean;
-};
-const examples: Brief[] = [
-  {
-    id: "example-1",
-    title: "The next chapter of AI in healthcare",
-    category: "Industry analysis",
-    date: "Example brief",
-    prompt:
-      "Explore how AI is changing clinical workflows, the barriers to adoption, and opportunities for emerging companies.",
-    depth: "Deep research",
-    scope: "Web & academic",
-    example: true,
-  },
-  {
-    id: "example-2",
-    title: "A landscape of sustainable packaging",
-    category: "Market landscape",
-    date: "Example brief",
-    prompt:
-      "Compare emerging sustainable packaging materials, their commercial readiness, and adoption challenges.",
-    depth: "Deep research",
-    scope: "Web & academic",
-    example: true,
-  },
-  {
-    id: "example-3",
-    title: "Understanding the agentic workflow",
-    category: "Technology",
-    date: "Example brief",
-    prompt:
-      "Investigate the building blocks of AI agent workflows and compare approaches to orchestration and evaluation.",
-    depth: "Quick overview",
-    scope: "Web",
-    example: true,
-  },
-];
-const templates = [
-  {
-    icon: Compass,
-    title: "Explore a topic",
-    description: "Get the full picture of something new.",
-    prompt:
-      "Give me a comprehensive overview of [topic], including key concepts, recent developments, and open questions.",
-  },
-  {
-    icon: Layers3,
-    title: "Compare options",
-    description: "Find the differences that matter.",
-    prompt:
-      "Compare [option A] and [option B] across capabilities, trade-offs, pricing, and ideal use cases.",
-  },
-  {
-    icon: Globe2,
-    title: "Map a market",
-    description: "Understand players, trends, and gaps.",
-    prompt:
-      "Map the market for [industry]. Identify leading companies, emerging trends, customer needs, and opportunities.",
-  },
-];
 function readBriefs(): Brief[] {
   try {
     const data: unknown = JSON.parse(
@@ -130,12 +59,14 @@ function App({ accountControls }: { accountControls?: ReactNode }) {
   const [help, setHelp] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (notice) {
       const timer = setTimeout(() => setNotice(""), 5000);
       return () => clearTimeout(timer);
     }
   }, [notice]);
+
   useEffect(() => {
     if (!selected && !help) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -166,6 +97,7 @@ function App({ accountControls }: { accountControls?: ReactNode }) {
       previous?.focus();
     };
   }, [selected, help]);
+
   function navigate(next: string) {
     setPage(next);
     setQuery("");
@@ -203,6 +135,7 @@ function App({ accountControls }: { accountControls?: ReactNode }) {
       );
     }
   }
+
   function download(brief: Brief) {
     const text = `# ${brief.title}\n\n${brief.example ? "Example brief" : "Research draft"}\n\n## Research question\n${brief.prompt}\n\n## Configuration\n- Depth: ${brief.depth}\n- Sources: ${brief.scope}\n\nResearch has not been run. Connect a research engine to generate findings and citations.\n`;
     const url = URL.createObjectURL(
@@ -226,84 +159,7 @@ function App({ accountControls }: { accountControls?: ReactNode }) {
           onClick={() => setMenu(false)}
         />
       )}
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
-        <a
-          className="brand"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("Overview");
-          }}
-        >
-          <span className="brand-mark">
-            <FlaskConical size={21} />
-          </span>
-          fieldwork<span className="brand-dot">.</span>
-        </a>
-        <div className="workspace">
-          <span className="workspace-avatar">P</span>
-          <div>
-            Personal workspace<small>Your space for discovery</small>
-          </div>
-          <ChevronDown size={14} />
-        </div>
-        <button className="new-button" onClick={() => newResearch()}>
-          <Plus size={17} /> New research <span>↗</span>
-        </button>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
-          {[
-            { title: "Overview", icon: Compass },
-            { title: "My research", icon: FolderOpen },
-            { title: "Source library", icon: BookOpen },
-            { title: "Templates", icon: Layers3 },
-          ].map(({ title, icon: Icon }) => (
-            <button
-              key={title}
-              className={page === title ? "nav-item active" : "nav-item"}
-              onClick={() => navigate(title)}
-            >
-              <Icon size={18} />
-              {title}
-              {title === "My research" && (
-                <span className="count">{briefs.length}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-        <div className="nav-label recent-label">RECENT RESEARCH</div>
-        <div className="sidebar-recents">
-          {[...briefs, ...examples].slice(0, 3).map((b) => (
-            <button key={b.id} onClick={() => setSelected(b)}>
-              <span className="tiny-dot" />
-              {b.title}
-            </button>
-          ))}
-        </div>
-        <div className="sidebar-bottom">
-          <div className="quiet-card">
-            <span className="small-spark">
-              <Sparkles size={17} />
-            </span>
-            <strong>A little curiosity goes a long way.</strong>
-            <p>Turn your next question into a clearer perspective.</p>
-            <button onClick={() => navigate("Templates")}>
-              Explore templates <ArrowUpRight size={14} />
-            </button>
-          </div>
-          <button className="help-button" onClick={() => setHelp(true)}>
-            <CircleHelp size={17} /> Help & getting started{" "}
-            <ArrowUpRight size={14} />
-          </button>
-          <div className="profile">
-            <span className="profile-avatar">Y</span>
-            <div>
-              Your workspace<small>Personal account</small>
-            </div>
-            <span className="local-label">LOCAL</span>
-          </div>
-        </div>
-      </aside>
+      <SideBar />
       <div className="main-shell">
         <header className="topbar">
           <div>

@@ -3,6 +3,7 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
 import researchRouter from "./routes/research.route.js";
+import OpenAI from "openai";
 
 dotenv.config();
 
