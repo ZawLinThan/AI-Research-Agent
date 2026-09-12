@@ -1,25 +1,15 @@
-import express from "express";
-import cors from "cors";
-import bodyParser from "body-parser";
-import dotenv from "dotenv";
-import researchRouter from "./routes/research.route.js";
-import OpenAI from "openai";
-
-dotenv.config();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(express.json());
-app.use(cors());
-app.use(bodyParser.json());
-
-app.use("/api/research", researchRouter);
-
-app.get("/", async (req, res) => {
-  res.send("Backend running!!");
-});
-
-app.listen(PORT, () => {
-  console.log("Server is running on http://localhost:3000");
-});
+import { app } from "./app.js";
+import { env } from "./config/env.js";
+import { researchQueue, producerConnection } from "./queues/research.queue.js";
+import { client } from "./db/index.js";
+const server = app.listen(env.PORT, "127.0.0.1", () =>
+  console.log(`Research API listening on ${env.PORT}`),
+);
+async function shutdown() {
+  server.close();
+  await researchQueue.close();
+  await producerConnection.quit();
+  await client.end();
+}
+process.once("SIGTERM", () => void shutdown());
+process.once("SIGINT", () => void shutdown());

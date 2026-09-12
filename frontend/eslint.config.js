@@ -15,6 +15,17 @@ export default defineConfig([
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "FunctionDeclaration",
+          message:
+            "Use a named const arrow function; export reusable functions.",
+        },
+        { selector: "FunctionExpression", message: "Use an arrow function." },
+      ],
+    },
     languageOptions: {
       globals: globals.browser,
     },

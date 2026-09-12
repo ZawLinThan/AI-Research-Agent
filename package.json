@@ -4,12 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --import tsx --test backend/src/services/__tests__/*.test.ts backend/src/auth/__tests__/*.test.ts",
     "format": "prettier --write .",
     "dev": "tsx watch backend/src/server.ts",
     "db:generate": "npx drizzle-kit generate",
-    "db:migrate": "npx drizzle-kit migrate",
-    "worker": "tsx watch backend/src/worker_runner.ts"
+    "db:migrate": "tsx backend/scripts/migrate.ts",
+    "worker": "tsx watch backend/src/worker_runner.ts",
+    "typecheck": "tsc -p backend/tsconfig.json"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,7 @@
     "@supabase/server": "^1.5.3",
     "@supabase/supabase-js": "^2.116.0",
     "@tavily/core": "^0.7.9",
+    "axios": "^1.20.0",
     "bullmq": "^6.3.4",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -40,7 +42,9 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/ioredis": "^4.28.10",
+    "@types/node": "^24.13.3",
     "drizzle-kit": "^0.31.10",
-    "prettier": "3.9.6"
+    "prettier": "3.9.6",
+    "typescript": "~6.0.2"
   }
 }

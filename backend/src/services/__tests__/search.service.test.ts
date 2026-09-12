@@ -17,7 +17,7 @@ test("search uses auto retrieval and preserves source highlights", async () => {
     assert.deepEqual(await searchWeb("  research topic  "), response);
     assert.deepEqual(call.mock.calls[0].arguments, [
       "research topic",
-      { type: "auto", numResults: 10, contents: { highlights: true } },
+      { type: "auto", numResults: 5, contents: { highlights: true } },
     ]);
   } finally {
     call.mock.restore();
@@ -63,7 +63,7 @@ test("missing credentials fail clearly without network access", async () => {
   const original = process.env.EXA_API_KEY;
   delete process.env.EXA_API_KEY;
   try {
-    await assert.rejects(searchWeb("topic"), /EXA_API_KEY is required/);
+    await assert.rejects(searchWeb("topic"), /Web search is not configured/);
   } finally {
     if (original !== undefined) process.env.EXA_API_KEY = original;
   }

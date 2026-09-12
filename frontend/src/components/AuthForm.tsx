@@ -1,282 +1,53 @@
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import type { Session } from "@supabase/supabase-js";
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   Check,
   Eye,
   EyeOff,
   FlaskConical,
   LoaderCircle,
   Mail,
-  Sparkles,
 } from "lucide-react";
-import { supabase } from "./lib/supabaseClient";
-import App from "./App";
-import "./auth.css";
-
-type AuthPage = "/login" | "/signup" | "/forgot-password" | "/reset-password";
-const authPages = ["/login", "/signup", "/forgot-password", "/reset-password"];
-
-export default function AuthRoot() {
-  const [path, setPath] = useState(window.location.pathname);
-  const [session, setSession] = useState<Session | null>(null);
-  const [ready, setReady] = useState(!supabase);
-  const [sessionError, setSessionError] = useState("");
-  function navigate(next: string) {
-    window.history.pushState({}, "", next);
-    setPath(next);
-    window.scrollTo(0, 0);
-  }
-  useEffect(() => {
-    const pop = () => setPath(window.location.pathname);
-    window.addEventListener("popstate", pop);
-    if (!supabase) return () => window.removeEventListener("popstate", pop);
-    let active = true;
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, next) => {
-      if (!active) return;
-      setSession(next);
-      setReady(true);
-      if (event === "PASSWORD_RECOVERY") {
-        window.history.replaceState({}, "", "/reset-password");
-        setPath("/reset-password");
-      }
-    });
-    supabase.auth
-      .getSession()
-      .then(({ data, error }) => {
-        if (active) {
-          setSession(data.session);
-          setReady(true);
-          if (error)
-            setSessionError(
-              "Your session could not be restored. Please sign in again.",
-            );
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setReady(true);
-          setSessionError(
-            "Unable to restore your session. Please sign in again.",
-          );
-        }
-      });
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-      window.removeEventListener("popstate", pop);
-    };
-  }, []);
-  async function signOut() {
-    if (!supabase) return;
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      setSessionError("Sign out failed. Please try again.");
-      return;
-    }
-    setSession(null);
-    navigate("/login");
-  }
-  if (authPages.includes(path))
-    return (
-      <AuthPageView
-        key={path}
-        page={path as AuthPage}
-        navigate={navigate}
-        session={session}
-        ready={ready}
-      />
-    );
-  return (
-    <App
-      accountControls={
-        <div className="workspace-auth">
-          {session ? (
-            <>
-              <span title={session.user.email}>{session.user.email}</span>
-              <button onClick={signOut}>Sign out</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => navigate("/login")}>Log in</button>
-              <button
-                className="auth-create"
-                onClick={() => navigate("/signup")}
-              >
-                Sign up <ArrowRight size={13} />
-              </button>
-            </>
-          )}
-          {sessionError && <span role="alert">{sessionError}</span>}
-        </div>
-      }
-    />
-  );
-}
-
-function AuthPageView({
+import "../auth.css";
+import { useAuthForm } from "../hooks/useAuthForm";
+import type { AuthPage, AuthPageProps } from "../types/auth";
+import { AuthStory } from "./AuthStory";
+export const AuthForm = ({
   page,
   navigate,
   session,
   ready,
-}: {
+}: AuthPageProps & {
   page: AuthPage;
-  navigate: (path: string) => void;
-  session: Session | null;
-  ready: boolean;
-}) {
-  const signup = page === "/signup",
-    recovery = page === "/forgot-password",
-    reset = page === "/reset-password";
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(() =>
-    new URLSearchParams(window.location.hash.slice(1)).has("error")
-      ? "This email link is invalid or has expired. Please request a new link."
-      : "",
-  );
-  const [success, setSuccess] = useState(false);
-  const title = signup
-    ? "A new space for your curiosity."
-    : recovery
-      ? "Let’s get you back in."
-      : reset
-        ? "A fresh start. A new password."
-        : "Welcome back.";
-  useEffect(() => {
-    document.title = `${signup ? "Sign up" : recovery ? "Password recovery" : reset ? "Reset password" : "Log in"} — Fieldwork`;
-    return () => {
-      document.title = "Fieldwork — Research workspace";
-    };
-  }, [signup, recovery, reset]);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    setError("");
-    if (!supabase) {
-      setError(
-        "Authentication is not configured yet. Please try again once setup is complete.",
-      );
-      return;
-    }
-    if ((signup || reset) && password.length < 8) {
-      setError("Choose a password with at least 8 characters.");
-      return;
-    }
-    if (reset && password !== confirm) {
-      setError("The passwords do not match. Please try again.");
-      return;
-    }
-    if (reset && !session) {
-      setError(
-        "Open the link in your recovery email before choosing a new password.",
-      );
-      return;
-    }
-    setBusy(true);
-    try {
-      if (recovery) {
-        const { error } = await supabase.auth.resetPasswordForEmail(
-          email.trim(),
-          { redirectTo: `${window.location.origin}/reset-password` },
-        );
-        if (error) throw error;
-        setSuccess(true);
-      } else if (reset) {
-        const { error } = await supabase.auth.updateUser({ password });
-        if (error) throw error;
-        setPassword("");
-        setConfirm("");
-        setSuccess(true);
-      } else if (signup) {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: { full_name: name.trim() },
-            emailRedirectTo: `${window.location.origin}/login`,
-          },
-        });
-        if (error) throw error;
-        setPassword("");
-        if (data.session) navigate("/");
-        else setSuccess(true);
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (error) throw error;
-        navigate("/");
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  function link(event: React.MouseEvent<HTMLAnchorElement>, to: string) {
-    event.preventDefault();
-    if (!busy) navigate(to);
-  }
-  const resetUnavailable = reset && ready && !session;
+}) => {
+  const {
+    signup,
+    recovery,
+    reset,
+    email,
+    setEmail,
+    name,
+    setName,
+    password,
+    setPassword,
+    confirm,
+    setConfirm,
+    show,
+    setShow,
+    busy,
+    error,
+    setError,
+    success,
+    setSuccess,
+    title,
+    submit,
+    link,
+    resetUnavailable,
+  } = useAuthForm({ page, navigate, session, ready });
+
   return (
     <div className="auth-layout">
-      <aside className="auth-story">
-        <a className="brand" href="/" onClick={(e) => link(e, "/")}>
-          <span className="brand-mark">
-            <FlaskConical size={21} />
-          </span>
-          fieldwork<span className="brand-dot">.</span>
-        </a>
-        <div className="story-content">
-          <span className="auth-kicker">
-            <span /> A WORKSPACE FOR DISCOVERY
-          </span>
-          <h1>
-            Follow your
-            <br />
-            curiosity.
-            <br />
-            <em>Find your clarity.</em>
-          </h1>
-          <p>
-            Give your questions room to grow.
-            <br />
-            Bring your research into focus.
-          </p>
-          <div className="discovery-art" aria-hidden="true">
-            <div className="orbit orbit-one" />
-            <div className="orbit orbit-two" />
-            <div className="orbit orbit-three" />
-            <div className="orbit-center">
-              <Sparkles size={32} strokeWidth={1.2} />
-            </div>
-            <span className="orbit-point point-one" />
-            <span className="orbit-point point-two" />
-            <span className="art-caption caption-one">A QUESTION</span>
-            <span className="art-caption caption-two">A NEW PERSPECTIVE</span>
-          </div>
-        </div>
-        <div className="story-foot">
-          <BookOpen size={16} />
-          <span>Good questions are just the beginning.</span>
-          <span className="edition">FIELD NOTES / 01</span>
-        </div>
-      </aside>
+      <AuthStory link={link} />
       <section className="auth-main">
         <header className="auth-top">
           <a href="/" onClick={(e) => link(e, "/")}>
@@ -304,7 +75,7 @@ function AuthPageView({
               <h2>{reset ? "Password updated." : "Check your inbox."}</h2>
               <p>
                 {reset
-                  ? "Your new password is ready. You can return to your research workspace."
+                  ? "Your new password is ready. Log in again to return to your research."
                   : recovery
                     ? `If an account exists for ${email}, you’ll receive a link to reset your password shortly.`
                     : `If confirmation is required, we’ve sent instructions to ${email}. Follow the link to finish setting up your account.`}
@@ -312,14 +83,14 @@ function AuthPageView({
               {!reset && (
                 <div className="auth-mail-note">
                   Can’t find the email? Check your spam folder and make sure you
-                  entered the right address.
+                  entered the right address. Open the link in this browser.
                 </div>
               )}
               <button
                 className="auth-submit"
-                onClick={() => navigate(reset ? "/" : "/login")}
+                onClick={() => navigate("/login")}
               >
-                {reset ? "Back to workspace" : "Back to log in"}
+                Back to log in
                 <ArrowRight size={16} />
               </button>
               {!reset && (
@@ -535,7 +306,7 @@ function AuthPageView({
                     Explore the workspace preview <ArrowRight size={15} />
                   </a>
                   <p className="auth-local-note">
-                    Research drafts currently stay on this device.
+                    Sign in to save and run research in your account.
                   </p>
                 </>
               )}
@@ -552,7 +323,7 @@ function AuthPageView({
       </section>
     </div>
   );
-}
-function ArrowUp() {
+};
+export const ArrowUp = () => {
   return <ArrowRight size={12} style={{ transform: "rotate(-35deg)" }} />;
-}
+};

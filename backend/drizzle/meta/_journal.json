@@ -15,6 +15,13 @@
       "when": 1788899510597,
       "tag": "0001_harsh_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788917877145,
+      "tag": "0002_research_pipeline",
+      "breakpoints": true
     }
   ]
 }

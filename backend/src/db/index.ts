@@ -14,5 +14,11 @@ if (connectionString.includes("postgres:postgres@supabase_db_")) {
 }
 
 // Disable prefetch as it is not supported for "Transaction" pool mode
-export const client = postgres(connectionString, { prepare: false });
+export const client = postgres(connectionString, {
+  prepare: false,
+  max: 5,
+  connect_timeout: 10,
+  idle_timeout: 20,
+  connection: { statement_timeout: 15000 },
+});
 export const db = drizzle(client);

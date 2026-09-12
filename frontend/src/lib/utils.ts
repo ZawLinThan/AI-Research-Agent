@@ -1,8 +1,6 @@
 import { Compass, Globe2, Layers3 } from "lucide-react";
 import type { Brief } from "../types";
-
 export { cn } from "cn";
-
 export const examples: Brief[] = [
   {
     id: "example-1",
@@ -38,7 +36,6 @@ export const examples: Brief[] = [
     example: true,
   },
 ];
-
 export const templates = [
   {
     icon: Compass,
