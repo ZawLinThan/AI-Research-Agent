@@ -61,11 +61,9 @@ export function authRouter(
       .update(req.ip ?? "unknown")
       .digest("hex");
     if ((await sessions.store.increment(`auth:rate:${ip}`, 600)) > 30) {
-      res
-        .status(429)
-        .json({
-          error: "Too many authentication attempts. Please try again later.",
-        });
+      res.status(429).json({
+        error: "Too many authentication attempts. Please try again later.",
+      });
       return;
     }
     next();

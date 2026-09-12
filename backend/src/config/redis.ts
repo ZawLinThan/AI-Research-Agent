@@ -13,7 +13,7 @@ export function createRedis(worker = false) {
         }
       : {}),
   };
-  
+
   const connection = env.REDIS_URL
     ? new IORedis(env.REDIS_URL, options)
     : new IORedis(options);

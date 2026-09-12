@@ -33,6 +33,6 @@ export function renderReport(
         f.evidence.some((e) => e.sourceId === s.id),
       ),
     )
-    .map((s) => `[${s.id}] ${s.title}\nRetrieved: ${s.retrievedAt}`)
+    .map((s) => `[${s.id}] ${s.title}\n${s.url}\nRetrieved: ${s.retrievedAt}`)
     .join("\n\n")}`;
 }

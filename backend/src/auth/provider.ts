@@ -14,6 +14,7 @@ const userSchema = z.object({
   id: z.string().uuid(),
   email: z.string().optional(),
 });
+
 const tokensSchema = z.object({
   access_token: z.string().min(1),
   refresh_token: z.string().min(1),
@@ -21,6 +22,7 @@ const tokensSchema = z.object({
   user: userSchema,
 });
 export type Tokens = z.infer<typeof tokensSchema>;
+
 export interface AuthProvider {
   login(email: string, password: string): Promise<Tokens>;
   signup(

@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Request, Response } from "express";
-import type { AuthSession } from "../../../shared/auth.js";
+
 import { AuthError, type AuthProvider, type Tokens } from "./provider.js";
 import type { AuthStore } from "./store.js";
+import { AuthSession } from "../types/auth.js";
 
 const lifetime = 30 * 86400;
 const flowLifetime = 3600;

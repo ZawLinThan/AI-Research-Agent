@@ -98,3 +98,116 @@ test("analysis copies selected source excerpts exactly instead of generating quo
   ids = ["invented:0"];
   await assert.rejects(() => analyzeEvidence("How do retries work?", sources));
 });
+
+test("search review corrects a missing reason once without accepting incomplete output", async (t) => {
+  const { reviewSearch } = await import("../search.service.js");
+  const { withProviderCalls } = await import("../../lib/providerCalls.js");
+  let attempts = 0,
+    additionalCalls = 0;
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    attempts++;
+    assert.match(request.messages[0].content, /including reason/);
+    assert.match(
+      request.messages[0].content,
+      /Required top-level fields:.*reason/,
+    );
+    if (attempts === 1)
+      throw Object.assign(new Error("missing properties: reason"), {
+        status: 400,
+        code: "json_validate_failed",
+      });
+    assert.match(request.messages[0].content, /previous attempt was invalid/);
+    return {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            content: JSON.stringify({
+              sufficient: true,
+              relevanceScore: 0.8,
+              coverageScore: 0.8,
+              sourceQualityScore: 0.8,
+              missingEvidence: [],
+              weakAreas: [],
+              followUpQueries: [],
+              reason: "The excerpts cover the question.",
+            }),
+          },
+        },
+      ],
+    };
+  });
+  const review = await withProviderCalls(
+    async () => {
+      additionalCalls++;
+    },
+    () =>
+      reviewSearch(
+        "How do queues work?",
+        { queries: ["queue research"] },
+        {},
+        new AbortController().signal,
+      ),
+  );
+  assert.equal(review.reason, "The excerpts cover the question.");
+  assert.equal(attempts, 2);
+  assert.equal(additionalCalls, 1);
+});
+
+test("malformed JSON is corrected locally but rate limits are left for the queue", async (t) => {
+  let attempts = 0;
+  const schema = z.object({ reason: z.string() });
+  const call = t.mock.method(client.chat.completions, "create", async () => {
+    attempts++;
+    return {
+      choices: [
+        {
+          message: {
+            content: attempts === 1 ? "{}" : '{"reason":"Supported"}',
+          },
+        },
+      ],
+    };
+  });
+  assert.deepEqual(await structured("Review", {}, schema), {
+    reason: "Supported",
+  });
+  assert.equal(attempts, 2);
+  call.mock.restore();
+  attempts = 0;
+  t.mock.method(client.chat.completions, "create", async () => {
+    attempts++;
+    throw Object.assign(new Error("rate limit"), { status: 429 });
+  });
+  await assert.rejects(structured("Review", {}, schema), /rate limit/);
+  assert.equal(attempts, 1);
+});
+
+test("search-review input and output stay bounded as results accumulate", async () => {
+  const { prepareSearchReview } = await import("../search.service.js");
+  const { searchReviewSchema } =
+    await import("../../zodSchema/search.schema.js");
+  const searches = Object.fromEntries(
+    Array.from({ length: 100 }, (_, i) => [
+      `query-${i}`,
+      Array.from({ length: 10 }, () => ({
+        id: "source",
+        title: "x".repeat(10000),
+        url: "https://example.com/" + "a".repeat(10000),
+        highlights: ["e".repeat(10000), "f".repeat(10000)],
+        queries: [],
+        retrievedAt: "now",
+      })),
+    ]),
+  );
+  const summary = prepareSearchReview(searches);
+  assert.ok(JSON.stringify(summary).length <= 10002);
+  assert.equal(summary.length, 10);
+  assert.equal(summary.at(-1)?.query, "query-99");
+  assert.ok(summary.every((q) => q.topResults.length > 0));
+  assert.ok(summary.every((q) => q.topResults.length <= 2));
+  assert.equal(
+    searchReviewSchema.safeParse({ sufficient: true }).success,
+    false,
+  );
+});

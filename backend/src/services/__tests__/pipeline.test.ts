@@ -53,9 +53,14 @@ function fixture() {
       states.push(status);
     },
     plan: async () => ({ queries: ["q1", "q2"] }),
-    search: async (query) => {
-      searchCalls.push(query);
-      return [source];
+    search: async (searches, _question, plan, _scope, _signal, checkpoint) => {
+      for (const query of plan.queries) {
+        if (searches[query]) continue;
+        searchCalls.push(query);
+        searches[query] = [source];
+        await checkpoint();
+      }
+      return searches;
     },
     analyze: async () => analysis,
     verify: async () => analysis,
@@ -78,10 +83,23 @@ test("complete a cited report only after verification", async () => {
 test("resume from a persisted search checkpoint after provider failure", async () => {
   const f = fixture();
   const search = f.deps.search;
-  f.deps.search = async (q, s, a) => {
-    if (q === "q2")
-      throw Object.assign(new Error("rate limited"), { status: 429 });
-    return search(q, s, a);
+  f.deps.search = async (
+    searches,
+    question,
+    plan,
+    scope,
+    signal,
+    checkpoint,
+  ) => {
+    await search(
+      searches,
+      question,
+      { queries: [plan.queries[0]] },
+      scope,
+      signal,
+      checkpoint,
+    );
+    throw Object.assign(new Error("rate limited"), { status: 429 });
   };
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
@@ -104,7 +122,7 @@ test("cancellation prevents completed writes", async () => {
 });
 test("insufficient evidence fails instead of reporting success", async () => {
   const f = fixture();
-  f.deps.search = async () => [];
+  f.deps.search = async () => ({});
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /No usable/,

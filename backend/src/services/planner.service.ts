@@ -1,13 +1,19 @@
-import { PlanReview, planReviewSchema, planSchema, ResearchPlan } from "../../../shared/research.js";
 import { structured } from "../config/groqAI.js";
+import {
+  ResearchPlan,
+  planSchema,
+  PlanReview,
+  planReviewSchema,
+} from "../zodSchema/research.schema.js";
 
-export const createInitialPlan = async (question: string,
+export const createInitialPlan = async (
+  question: string,
   depth: string,
   scope: string,
-  signal?: AbortSignal): Promise<ResearchPlan> => {
-
+  signal?: AbortSignal,
+): Promise<ResearchPlan> => {
   const currentDate = new Date().toISOString().split("T")[0];
-  console.log("Creating initial research plan"); 
+  console.log("Creating initial research plan");
 
   return structured(
     `
@@ -44,7 +50,7 @@ export const createInitialPlan = async (question: string,
     planSchema,
     signal,
   );
-}
+};
 
 export const reviewPlan = async (
   question: string,
@@ -137,8 +143,8 @@ export const revisePlan = async (
     14. Use 3 queries for quick research and 6 queries for deep research.
     `,
     {
-      question, 
-      depth, 
+      question,
+      depth,
       scope,
       originalPlan,
       review,
@@ -146,4 +152,4 @@ export const revisePlan = async (
     planSchema,
     signal,
   );
-}
+};

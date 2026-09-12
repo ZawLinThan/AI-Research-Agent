@@ -1,11 +1,10 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import {
-  analysisSchema,
-  type Analysis,
-  type Source,
-} from "../../../shared/research.js";
+
 import { structured } from "../config/groqAI.js";
+import { Source } from "../types/research.js";
+import { Analysis, analysisSchema } from "../zodSchema/research.schema.js";
+
 export function sourceId(url: string) {
   return "S" + createHash("sha256").update(url).digest("hex").slice(0, 12);
 }

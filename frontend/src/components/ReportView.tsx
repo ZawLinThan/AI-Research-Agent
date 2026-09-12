@@ -8,7 +8,7 @@ export const ReportView = ({
 }) => {
   const seen = new Set();
 
-  const uniqueSources = sources.filter(obj => {
+  const uniqueSources = sources.filter((obj) => {
     if (seen.has(obj.id)) {
       return false;
     }
@@ -35,9 +35,9 @@ export const ReportView = ({
       ) : (
         part
       );
-    })
+    });
   };
-  
+
   return (
     <div className="report-content">
       {report.split("\n\n").map((block, i) => {

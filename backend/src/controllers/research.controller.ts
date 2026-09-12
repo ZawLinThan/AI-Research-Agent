@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { requestSchema } from "../../../shared/research.js";
 import {
   createResearchProject,
   listResearch,
@@ -8,12 +7,13 @@ import {
   cancelResearch,
 } from "../services/research.service.js";
 import { enqueueResearch } from "../queues/research.queue.js";
+import { requestSchema } from "../zodSchema/research.schema.js";
 
 export async function createResearch(req: Request, res: Response) {
   const input = requestSchema.parse(req.body);
 
   const project = await createResearchProject(res.locals.ownerId, input);
-  
+
   let queued = true;
   try {
     if (!["completed", "failed", "cancelled"].includes(project.status))

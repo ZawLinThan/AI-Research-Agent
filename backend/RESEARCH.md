@@ -23,16 +23,20 @@ shown in AUTH.md. The API and worker are separate long-running processes.
 ## Flow and persistence
 
 The cookie-authenticated API resolves an opaque HttpOnly session ID through Redis, creates an owned project and returns 202, then BullMQ runs
-planning → search → evidence analysis → optional follow-up → claim verification
+planning and plan review → search and optional follow-up review → evidence analysis → claim verification
 → report. Reports are assembled from verified claims, so no uncited summary is
 introduced after verification. Source IDs link claims to stored excerpts. This
 is evidence review, not a guarantee that sources or model judgments are true.
 
 The worker persists checkpoints before provider calls and after completed stages.
 Retry resumes completed stages. Up to two jobs execute concurrently; searches
-within a run execute sequentially. Quick overview uses at most two initial
-queries; deep research uses four and at most one follow-up. Five results per
-query are deduplicated into at most ten sources. Context is capped at two
+within a run execute sequentially. Quick overview uses at most three initial
+queries; deep research uses six. Search review can request one additional round
+of at most two queries. Ten results per query are deduplicated into at most ten sources.
+Review input shares a 10,000-character summary budget across queries, including
+follow-ups. Invalid model structures receive one correction attempt with required
+fields explicitly listed; every nested request and correction counts against the
+provider-call budget. Successful searches are checkpointed before review. Context is capped at two
 900-character excerpts per source. A run allows at most sixteen provider calls
 across attempts and eight minutes from first execution. Groq requests time out
 at 60 seconds and search at 45 seconds. Transient failures retry up to three total

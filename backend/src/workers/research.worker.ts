@@ -14,13 +14,13 @@ import {
   recoverableRuns,
   markOrphanFailed,
 } from "../services/research.service.js";
-import { searchWithSignal } from "../services/search.service.js";
 import { analyzeEvidence, sourceId } from "../services/evidence.service.js";
 import { verifyFindings } from "../services/report.service.js";
 import { runPipeline } from "../pipeline/run.js";
 import { RunStopped, publicError, retryable } from "../lib/errors.js";
 import { client as database } from "../db/index.js";
 import { createResearchPlan } from "../pipeline/planner.pipeline.js";
+import { searchForSources } from "../pipeline/search.pipeline.js";
 
 const connection = createRedis(true);
 
@@ -35,7 +35,7 @@ export const researchWorker = new Worker(
     const controller = new AbortController();
     let stage = project.status;
     let checking = false;
-    
+
     const timer = setInterval(async () => {
       if (checking) return;
       checking = true;
@@ -65,18 +65,7 @@ export const researchWorker = new Worker(
             );
           },
           plan: createResearchPlan,
-          search: async (query, scope, signal) => {
-            const response = await searchWithSignal(query, scope, signal);
-            return response.results.map((r) => ({
-              id: sourceId(r.url),
-              url: r.url,
-              title: r.title || r.url,
-              highlights: r.highlights || [],
-              queries: [query],
-              retrievedAt: new Date().toISOString(),
-              logo: new URL(r.url).origin + "/favicon.ico",
-            }));
-          },
+          search: searchForSources,
           analyze: analyzeEvidence,
           verify: verifyFindings,
         },

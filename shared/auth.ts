@@ -1,3 +1,1 @@
-export type AuthSession = {
-  user: { id: string; email?: string };
-};
+export type { AuthSession } from "../backend/src/types/auth.js";
