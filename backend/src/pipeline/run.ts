@@ -94,10 +94,31 @@ export async function runPipeline(
     throw new PermanentError(
       "The retrieved evidence did not support a reliable answer. Try narrowing the question.",
     );
+  if (!state.reportLayout) {
+    state.reportLayout = deps.present
+      ? await execute("generating_report", 94, () =>
+          deps.present!(record.question, state.verified!, signal),
+        )
+      : {
+            overview: [],
+            sections: [
+              {
+                heading: "Key findings",
+                findingIndexes: state.verified!.findings.map((_, i) => i),
+              },
+            ],
+          };
+    await save("generating_report", 97);
+  }
   await save(
     "completed",
     100,
-    renderReport(record.question, state.verified, state.sources),
+    renderReport(
+      record.question,
+      state.verified,
+      state.sources,
+      state.reportLayout,
+    ),
   );
   return {
     sources: state.sources.length,

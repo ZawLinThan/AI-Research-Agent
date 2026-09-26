@@ -43,6 +43,15 @@ export const ReportView = ({
       {report.split("\n\n").map((block, i) => {
         if (block.startsWith("## ")) return <h3 key={i}>{block.slice(3)}</h3>;
         if (block.startsWith("# ")) return <h2 key={i}>{block.slice(2)}</h2>;
+        const lines = block.split("\n");
+        if (lines.every((line) => line.startsWith("- ")))
+          return (
+            <ul key={i}>
+              {lines.map((line, j) => (
+                <li key={j}>{inline(line.slice(2))}</li>
+              ))}
+            </ul>
+          );
         return <p key={i}>{inline(block)}</p>;
       })}
     </div>

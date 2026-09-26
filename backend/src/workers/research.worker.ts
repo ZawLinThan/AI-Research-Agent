@@ -26,7 +26,10 @@ import {
   markOrphanFailed,
 } from "../services/research.service.js";
 import { analyzeEvidence, sourceId } from "../services/evidence.service.js";
-import { verifyFindings } from "../services/report.service.js";
+import {
+  createReportLayout,
+  verifyFindings,
+} from "../services/report.service.js";
 import { runPipeline } from "../pipeline/run.js";
 import {
   RunStopped,
@@ -45,7 +48,7 @@ configureProviderScheduler(
   new ProviderScheduler(
     new RedisProviderGate(
       producerConnection,
-      `groq:${process.env.GROQ_RATE_LIMIT_GROUP || "default"}:${process.env.GROQ_MODEL || "openai/gpt-oss-20b"}`,
+      `groq:${process.env.GROQ_RATE_LIMIT_GROUP || "default"}:${process.env.GROQ_MODEL || "openai/gpt-oss-120b"}`,
       groqTokensPerMinute,
       groqRequestsPerMinute,
     ),
@@ -109,6 +112,7 @@ export const researchWorker = new Worker(
           search: searchForSources,
           analyze: analyzeEvidence,
           verify: verifyFindings,
+          present: createReportLayout,
         },
         controller.signal,
       );

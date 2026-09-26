@@ -1,5 +1,10 @@
 import type { Analysis, ResearchPlan } from "../zodSchema/research.schema.js";
-import type { Checkpoint, ResearchStatus, Source } from "./research.js";
+import type {
+  Checkpoint,
+  ReportLayout,
+  ResearchStatus,
+  Source,
+} from "./research.js";
 
 export type RunRecord = {
   id: string;
@@ -43,4 +48,9 @@ export type PipelineDeps = {
     sources: Source[],
     signal: AbortSignal,
   ) => Promise<Analysis>;
+  present?: (
+    question: string,
+    analysis: Analysis,
+    signal: AbortSignal,
+  ) => Promise<ReportLayout>;
 };

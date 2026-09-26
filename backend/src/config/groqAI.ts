@@ -30,9 +30,9 @@ export async function structured<T>(
     try {
       const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
         {
-          model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+          model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
           temperature: 0.2,
-          ...((process.env.GROQ_MODEL || "openai/gpt-oss-20b").startsWith(
+          ...((process.env.GROQ_MODEL || "openai/gpt-oss-120b").startsWith(
             "openai/gpt-oss-",
           )
             ? { reasoning_effort: "low" as const }

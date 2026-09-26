@@ -4,7 +4,7 @@
 
 1. Configure the root `.env`: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
    `GROQ_API_KEY`, `EXA_API_KEY`. Optional: `GROQ_MODEL` (default
-   `openai/gpt-oss-20b`), `REDIS_URL`, or `REDIS_HOST`, `REDIS_PORT`,
+   `openai/gpt-oss-120b`), `REDIS_URL`, or `REDIS_HOST`, `REDIS_PORT`,
    `REDIS_PASSWORD`. Never expose provider secrets in Vite variables.
 2. Use the existing Redis service, or `docker compose -f compose.research.yml up -d`.
    Do not start a second Redis on port 6379. The provided configuration persists
@@ -98,9 +98,9 @@ plan migration of existing data before recreating that service.
 ### Provider-call budget
 
 `RESEARCH_MAX_PROVIDER_CALLS` defaults to 40 and must be a positive integer.
-Deep research can use 21 calls (including two planner revisions and two search
-follow-up rounds), or 32 with one correction for every model call. The remaining
-eight calls allow limited transient retries. The counter persists across queue
+Deep research can use 22 calls (including two planner revisions, two search
+follow-up rounds, and report layout), or 34 with one correction for every model call. The remaining
+six calls allow limited transient retries. The counter persists across queue
 attempts; it is never reset to bypass the cap. The fifteen-minute deadline still
 applies independently. Provider token/rate limits are separate from this limit.
 Restart the worker after changing the environment. Already failed runs require

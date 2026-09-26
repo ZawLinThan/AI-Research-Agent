@@ -2,8 +2,8 @@ import "dotenv/config";
 import { z } from "zod";
 
 // Deep research: 6 planner calls + 10 searches + 3 search reviews + analysis +
-// verification = 21 calls. One correction per model call raises this to 32.
-// The default leaves another 8 calls for transient failures across queue attempts.
+// verification + report layout = 22 calls. One correction per model call raises
+// this to 34. The default leaves 6 calls for transient failures across attempts.
 export const maxProviderCalls = z.coerce
   .number()
   .int()

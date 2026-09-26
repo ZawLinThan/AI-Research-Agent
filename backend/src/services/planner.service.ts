@@ -21,23 +21,46 @@ export const createInitialPlan = async (
   
       Current date: ${currentDate}
   
-      Your job is to understand the user's request and create a high-quality web research plan.
+      Privately identify the user's goal, domain, relevant entities, and the
+      information most necessary to answer the request. Preserve the user's
+      meaning; do not invent a specific goal for a broad request.
   
-      First infer:
-      - the user's research goal
-      - the topic/domain
-      - the relevant entity types
-      - the main dimensions needed to answer the question
-  
-      Then generate diverse, up-to-date search queries using today date. The current date is provided. 
-  
-      Rules:
+      Select query topics in this order:
+      1. The core information needed to answer the request.
+      2. The most consequential comparisons, causes, or evidence for that domain.
+      3. Additional dimensions only if they materially improve the answer.
+
+
+      For a broad comparison, prioritize what the entities do, their most
+      important differences, current evidence, and domain-relevant performance.
+      Do not fill slots with merely plausible side topics. Include topics such
+      as ESG, governance, careers, or litigation only when requested or clearly
+      central to the question.
+
+      For "top", "best", or "leading" organization questions, first look for
+      reputable current rankings or roundups that directly match the requested
+      domain and year, including their stated criteria. Also search for recent
+      evidence about the leading entities. Do not combine unrelated metrics
+      such as patents, market value, brand growth, and employee satisfaction
+      into one implied ranking; keep those as distinct dimensions unless the
+      user names a single ranking criterion. Do not search workplace lists
+      unless the user asks about employers or places to work.
+
+      Time rules: 
+      - Seek the latest information available as of the current date. 
+      - The latest completed annual period may be earlier than the current year. Also seek newer interim information when relevant.
+      - Use older periods only for trends, historical context, or when they are the 
+        latest available evidence. Do not default to an older year from memory.
+      - Do not claim that a future or unreleased report exists.
+      - Before returning, check every query against the supplied date.
+    
+      Source Rules:
       1. Preserve the user's original meaning.
       2. Do not arbitrarily narrow broad terms.
       3. Infer entity types from the domain.
       4. When the user asks for "leading", "top", or "best", identify the real-world entities that are most relevant to that domain.
       5. Search queries should cover different dimensions and avoid redundancy.
-      6. Use up-to-date information when the question is time-sensitive. Current date is given.
+      6. Must use the up-to-date information
       7. Do not assume all organizations are universities, companies, nonprofits, or research institutes. Infer the appropriate types from context.
       8. Include named entities in queries only when they are likely relevant, but do not hardcode domain-specific companies.
       9. Prefer broad discovery queries first, then narrower comparison or evidence queries.
@@ -72,6 +95,17 @@ export const reviewPlan = async (
 
     Evaluate whether the proposed search plan will retrieve enough
     high-quality evidence to answer the user's original request.
+
+    Evaluate whether it violates time rule. If it violates, give a strict false and revision instruction & missing angle must
+    say the queries must follow the time rules. 
+    
+    Time rules: 
+      - Seek the latest information available as of the current date. 
+      - The latest completed annual period may be earlier than the current year. Also seek newer interim information when relevant.
+      - Use older periods only for trends, historical context, or when they are the 
+        latest available evidence. Do not default to an older year from memory.
+      - Do not claim that a future or unreleased report exists.
+      - Before returning, check every query against the supplied date
 
     Evaluate whether all queries in the plan will answer the user's question 
     straightforwardly or not. If any query doesn't directly answer the question 

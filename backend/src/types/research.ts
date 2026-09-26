@@ -35,7 +35,13 @@ export type Checkpoint = {
   analysis?: Analysis;
   followUpDone?: boolean;
   verified?: Analysis;
+  reportLayout?: ReportLayout;
   calls?: number;
+};
+
+export type ReportLayout = {
+  overview: number[];
+  sections: { heading: string; findingIndexes: number[] }[];
 };
 
 export type ResearchProject = {

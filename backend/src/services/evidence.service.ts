@@ -67,10 +67,10 @@ export async function analyzeEvidence(
   sources: Source[],
   signal?: AbortSignal,
 ) {
-  const excerpts = sources.flatMap((source) =>
+  const excerpts = sources.slice(0, 10).flatMap((source) =>
     source.highlights
       .filter((text) => text.trim().length >= 15)
-      .slice(0, 1)
+      .slice(0, 2)
       .map((text, index) => ({
         excerptId: `${source.id}:${index}`,
         sourceId: source.id,
