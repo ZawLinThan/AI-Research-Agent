@@ -7,6 +7,7 @@ import { env } from "./config/env.js";
 import { authSessions } from "./auth/index.js";
 import { authRouter, csrfProtection } from "./auth/routes.js";
 import { AuthError } from "./auth/provider.js";
+
 export const app = express();
 const frontendUrl = new URL(env.FRONTEND_ORIGIN);
 const localDevelopment =
@@ -20,7 +21,11 @@ const origins = [
       : []),
   ]),
 ];
-if (env.TRUST_PROXY) app.set("trust proxy", env.TRUST_PROXY);
+
+if (env.TRUST_PROXY) {
+  app.set("trust proxy", env.TRUST_PROXY);
+}
+
 app.disable("x-powered-by");
 app.use(
   cors({

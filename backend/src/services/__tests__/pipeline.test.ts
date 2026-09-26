@@ -1,3 +1,5 @@
+import { maxProviderCalls } from "../../config/researchLimits.js";
+import { beforeProviderCall } from "../../lib/providerCalls.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -140,7 +142,7 @@ test("unsupported findings do not produce a completed report", async () => {
 });
 test("provider budgets and deadlines survive retries", async () => {
   const f = fixture();
-  f.record.checkpoint.calls = 16;
+  f.record.checkpoint.calls = maxProviderCalls;
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /budget/,
@@ -199,4 +201,50 @@ test("validate planner shape and transient retry classification", () => {
   assert.equal(retryable({ status: 503 }), true);
   assert.equal(retryable({ status: 401 }), false);
   assert.equal(retryable(new PermanentError("invalid")), false);
+});
+
+test("deep research can finish with all review rounds and model corrections", async () => {
+  const f = fixture();
+  f.record.depth = "Deep research";
+  const calls = async (count: number) => {
+    for (let i = 0; i < count; i++) await beforeProviderCall();
+  };
+  f.deps.plan = async () => {
+    await calls(12); // Initial plan, two revisions, three reviews, each corrected once.
+    return { queries: Array.from({ length: 6 }, (_, i) => `query ${i}`) };
+  };
+  f.deps.search = async () => {
+    await calls(16); // Six initial + four follow-up searches; three corrected reviews.
+    return { evidence: [source] };
+  };
+  f.deps.analyze = async () => {
+    await calls(2);
+    return analysis;
+  };
+  f.deps.verify = async () => {
+    await calls(2);
+    return analysis;
+  };
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.calls, 32);
+  assert.equal(f.states.at(-1), "completed");
+});
+
+test("nested calls cannot bypass the remaining budget on a retried run", async () => {
+  const f = fixture();
+  f.record.checkpoint.calls = maxProviderCalls - 1;
+  let requests = 0;
+  f.deps.plan = async () => {
+    await beforeProviderCall();
+    requests++;
+    await beforeProviderCall();
+    requests++;
+    return { queries: ["query"] };
+  };
+  await assert.rejects(
+    runPipeline(f.record, f.deps, new AbortController().signal),
+    /provider-call budget/,
+  );
+  assert.equal(requests, 1);
+  assert.equal(f.record.checkpoint.calls, maxProviderCalls);
 });

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
+import { RedisProviderGate } from "../../lib/providerRateLimit.js";
 import { RedisAuthStore } from "../store.js";
 
 test("Redis session operations enforce expiry, exclusive locks, conditional refresh and single-use state", async (t) => {
@@ -64,6 +65,22 @@ test("Redis session operations enforce expiry, exclusive locks, conditional refr
   });
   redis = new IORedis(socket, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
+  // Independent limiter instances share atomic admission through Redis.
+  const firstGate = new RedisProviderGate(redis, "test-groq", 8000, 30);
+  const secondGate = new RedisProviderGate(redis, "test-groq", 8000, 30);
+  const admissions = await Promise.all([
+    firstGate.acquire(5000),
+    secondGate.acquire(5000),
+  ]);
+  assert.equal(admissions.filter((n) => n === 0).length, 1);
+  assert.ok(admissions.some((n) => n > 0));
+  await firstGate.cooldown(90000);
+  await secondGate.cooldown(1000); // A shorter cooldown cannot overwrite the longer one.
+  assert.ok((await secondGate.acquire(1)) > 80000);
+  await assert.rejects(firstGate.acquire(8001), /token-per-minute/);
+  const rpmGate = new RedisProviderGate(redis, "test-rpm", 8000, 1);
+  assert.equal(await rpmGate.acquire(0), 0);
+  assert.ok((await rpmGate.acquire(0)) > 0);
   const store = new RedisAuthStore(redis);
   await store.put("session", "original", 60);
   assert.ok((await redis.ttl("session")) > 0);

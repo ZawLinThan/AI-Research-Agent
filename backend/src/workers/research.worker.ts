@@ -1,3 +1,14 @@
+import {
+  configureProviderScheduler,
+  ProviderScheduler,
+  RedisProviderGate,
+  providerBackoff,
+} from "../lib/providerRateLimit.js";
+import {
+  groqTokensPerMinute,
+  groqRequestsPerMinute,
+  researchWorkerConcurrency,
+} from "../config/researchLimits.js";
 import { Worker, UnrecoverableError } from "bullmq";
 import {
   RESEARCH_QUEUE,
@@ -17,12 +28,35 @@ import {
 import { analyzeEvidence, sourceId } from "../services/evidence.service.js";
 import { verifyFindings } from "../services/report.service.js";
 import { runPipeline } from "../pipeline/run.js";
-import { RunStopped, publicError, retryable } from "../lib/errors.js";
+import {
+  RunStopped,
+  PermanentError,
+  publicError,
+  retryable,
+  modelValidationDetails,
+} from "../lib/errors.js";
 import { client as database } from "../db/index.js";
 import { createResearchPlan } from "../pipeline/planner.pipeline.js";
 import { searchForSources } from "../pipeline/search.pipeline.js";
 
 const connection = createRedis(true);
+configureProviderScheduler(
+  "groq",
+  new ProviderScheduler(
+    new RedisProviderGate(
+      producerConnection,
+      `groq:${process.env.GROQ_RATE_LIMIT_GROUP || "default"}:${process.env.GROQ_MODEL || "openai/gpt-oss-20b"}`,
+      groqTokensPerMinute,
+      groqRequestsPerMinute,
+    ),
+  ),
+);
+configureProviderScheduler(
+  "exa",
+  new ProviderScheduler(
+    new RedisProviderGate(producerConnection, "exa:default"),
+  ),
+);
 
 export const researchWorker = new Worker(
   RESEARCH_QUEUE,
@@ -33,6 +67,13 @@ export const researchWorker = new Worker(
 
     const { project, token } = claimed;
     const controller = new AbortController();
+    const deadline = setTimeout(
+      () =>
+        controller.abort(
+          new PermanentError("Research exceeded its thirty-minute time budget."),
+        ),
+      Math.max(0, 30 * 60000 - (Date.now() - project.startedAt!.getTime())),
+    );
     let stage = project.status;
     let checking = false;
 
@@ -72,6 +113,18 @@ export const researchWorker = new Worker(
         controller.signal,
       );
     } catch (error) {
+      if (
+        controller.signal.aborted &&
+        controller.signal.reason instanceof PermanentError
+      ) {
+        await failRun(
+          project.id,
+          token,
+          controller.signal.reason.message,
+          true,
+        );
+        throw new UnrecoverableError(controller.signal.reason.message);
+      }
       if (error instanceof RunStopped || controller.signal.aborted) {
         await checkRun(project.id, token);
         throw error;
@@ -80,10 +133,14 @@ export const researchWorker = new Worker(
         JSON.stringify({
           event: "provider_failure",
           stage,
+          provider: (error as { provider?: string }).provider,
+          retryAfterMs: (error as { retryAfterMs?: number }).retryAfterMs,
           projectId: project.id,
           status: (error as { status?: number }).status,
           code: (error as { code?: string }).code,
           type: error instanceof Error ? error.name : "unknown",
+          validation: modelValidationDetails(error),
+          reason: error instanceof PermanentError ? error.message : undefined,
         }),
       );
       const final = !retryable(error) || job.attemptsMade + 1 >= 3;
@@ -92,9 +149,15 @@ export const researchWorker = new Worker(
       throw error;
     } finally {
       clearInterval(timer);
+      clearTimeout(deadline);
     }
   },
-  { connection, concurrency: 2, maxStalledCount: 1 },
+  {
+    connection,
+    concurrency: researchWorkerConcurrency,
+    maxStalledCount: 1,
+    settings: { backoffStrategy: providerBackoff },
+  },
 );
 researchWorker.on("error", () =>
   console.error("Research worker connection error"),
@@ -117,7 +180,7 @@ export async function reconcile() {
       if (row.startedAt && Date.now() - row.startedAt.getTime() > 8 * 60_000) {
         await markOrphanFailed(
           row.id,
-          "Research exceeded its eight-minute time budget.",
+          "Research exceeded its fifteen-minute time budget.",
         );
         continue;
       }

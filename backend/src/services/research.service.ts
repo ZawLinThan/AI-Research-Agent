@@ -58,6 +58,7 @@ export async function createResearchProject(
         );
       return existing;
     }
+    
     const [{ count: running }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(projects)

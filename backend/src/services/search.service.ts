@@ -11,6 +11,7 @@ import { structured } from "../config/groqAI.js";
 import { ResearchPlan } from "../zodSchema/research.schema.js";
 import { QuerySearchSummary } from "../types/search.js";
 
+import { scheduleProviderRequest } from "../lib/providerRateLimit.js";
 import { beforeProviderCall } from "../lib/providerCalls.js";
 
 const querySchema = z.string().trim().min(1).max(5000);
@@ -20,16 +21,17 @@ export const search = async (
   scope: string,
   signal: AbortSignal,
 ): Promise<Source[]> => {
-  await beforeProviderCall();
-  const response = await axios.post(
-    "https://api.exa.ai/search",
-    {
-      query: querySchema.parse(query),
-      type: "auto",
-      numResults: 10,
-      contents: { highlights: true },
-      ...(scope === "Academic"
-        ? {
+  const response = await scheduleProviderRequest("exa", 0, signal, async () => {
+    await beforeProviderCall();
+    return axios.post(
+      "https://api.exa.ai/search",
+      {
+        query: querySchema.parse(query),
+        type: "auto",
+        numResults: 10,
+        contents: { highlights: true },
+        ...(scope === "Academic"
+          ? {
             includeDomains: [
               "arxiv.org",
               "pubmed.ncbi.nlm.nih.gov",
@@ -40,15 +42,16 @@ export const search = async (
               "ieee.org",
             ],
           }
-        : {}),
-    },
-    {
-      headers: {
-        "x-api-key": process.env.EXA_API_KEY,
+          : {}),
       },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]),
-    },
-  );
+      {
+        headers: {
+          "x-api-key": process.env.EXA_API_KEY,
+        },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]),
+      },
+    );
+  });
 
   // Exa only returns 200 for successful requests
   if (response.status !== 200) {
@@ -73,6 +76,41 @@ export const search = async (
   }));
 };
 
+const selectReviewSources = (
+  sources: Source[],
+  limit = 4,
+) => {
+  const selected: Source[] = [];
+  const seenDomains = new Set<string>();
+
+  // First prefer different domains
+  for (const source of sources) {
+    const domain = new URL(source.url).hostname;
+
+    if (!seenDomains.has(domain)) {
+      selected.push(source);
+      seenDomains.add(domain);
+    }
+
+    if (selected.length === limit) {
+      return selected;
+    }
+  }
+
+  // Fill remaining slots by rank
+  for (const source of sources) {
+    if (!selected.includes(source)) {
+      selected.push(source);
+    }
+
+    if (selected.length === limit) {
+      break;
+    }
+  }
+
+  return selected;
+};
+
 export const prepareSearchReview = (
   searches: Record<string, Source[]>,
 ): QuerySearchSummary[] => {
@@ -84,7 +122,7 @@ export const prepareSearchReview = (
     const summary: QuerySearchSummary = {
       query: query.slice(0, 300),
       resultCount: sources.length,
-      topResults: sources.slice(0, 2).map((source) => ({
+      topResults: selectReviewSources(sources).map((source) => ({
         title: source.title.slice(0, 100),
         url: source.url.slice(0, 180),
         highlights: source.highlights
@@ -111,6 +149,8 @@ export const reviewSearch = async (
   const currentDate = new Date().toISOString().split("T")[0];
 
   const searchSummary = prepareSearchReview(searches);
+  console.log("Search Summary for review is ", searchSummary);
+  console.log("Reviewing search");
 
   return structured(
     `
@@ -150,26 +190,49 @@ export const reviewSearch = async (
 
     Decision rules:
 
-    - Set sufficient=true if the current evidence is good enough
-      to continue to evidence extraction.
-    - Do not require perfect coverage.
-    - If evidence is insufficient, identify only the meaningful gaps.
-    - Generate targeted follow-up queries only for those gaps.
-    - Do not repeat queries already present in the search results.
-    - Return an empty followUpQueries array if sufficient=true.
+    - Do not mark the search sufficient merely because some relevant
+      high-quality evidence was found.
+    - Require evidence covering the major entity categories implied
+      by the question.
+    - Require multiple independent sources when making comparative
+      claims across organizations.
+    - A single source or a single narrow comparison is not sufficient
+      for a broad ranking question.
+    - Check whether the retrieved evidence allows comparison using
+      meaningful leadership criteria such as market position,
+      adoption, revenue, valuation, research influence, infrastructure,
+      or other domain-appropriate measures.
+
+    Output contract:
     - Return ALL these fields, including reason:
-      {"sufficient":true,"relevanceScore":0.8,"coverageScore":0.8,"sourceQualityScore":0.8,"missingEvidence":[],"weakAreas":[],"followUpQueries":[],"reason":"Brief explanation of the decision."}
-    - Scores must be between 0 and 1. Use at most 3 short missingEvidence and weakAreas entries.
-    - Use at most 2 follow-up queries, each between 3 and 300 characters. Keep reason under 400 characters.
-    - These are sampled excerpts, not full documents; describe uncertainty without assuming absent information is false.
+      {"sufficient":false,"relevanceScore":0.5,"coverageScore":0.5,"sourceQualityScore":0.5,"missingEvidence":[],"weakAreas":[],"followUpQueries":[],"reason":"Brief explanation of the decision."}
+    - The example illustrates the structure; determine the values from the supplied evidence.
+    - Scores are numbers between 0 and 1, not percentages or strings.
+    - missingEvidence and weakAreas each contain at most 3 strings of at most 200 characters.
+    - followUpQueries contains at most 2 distinct queries, each 3–300 characters.
+    - followUpQueries must queries that answer the missing areas of the question. 
+    - followUpQueries must not be questions. They must be concise followUp queries
+    - Return no follow-up queries when sufficient=true; otherwise target meaningful gaps and avoid already searched queries.
+    - reason is required and must contain 1–400 characters. Keep the entire response concise.
+
+    When generating follow-up queries:
+
+    - Do not generate queries that are semantically equivalent
+      to existing or previously executed queries.
+    - A query is redundant if it is likely to retrieve substantially
+      the same result set even if wording differs.
+    - Prefer a different missing dimension rather than paraphrasing
+      an existing query.
     `,
     {
       question,
       researchPlan: plan,
       searches: searchSummary,
+      executedQueries: Object.keys(searches),
     },
     searchReviewSchema,
     signal,
+    1400,
   );
 };
 

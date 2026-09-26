@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Analysis, Source } from "../../../shared/research.js";
 import { structured } from "../config/groqAI.js";
 import { groundedFindings } from "./evidence.service.js";
+
 export async function verifyFindings(
   question: string,
   analysis: Analysis,
@@ -14,12 +15,14 @@ export async function verifyFindings(
     { question, findings: checked.findings },
     z.object({ supported: z.array(z.number().int().nonnegative()).max(12) }),
     signal,
+    800,
   );
   return {
     ...checked,
     findings: checked.findings.filter((_, i) => verdict.supported.includes(i)),
   };
 }
+
 export function renderReport(
   question: string,
   analysis: Analysis,

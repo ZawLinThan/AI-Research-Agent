@@ -3,6 +3,7 @@ import { PermanentError, RunStopped } from "../lib/errors.js";
 import { renderReport } from "../services/report.service.js";
 import type { Checkpoint, ResearchStatus } from "../types/research.js";
 import type { PipelineDeps, RunRecord } from "../types/pipeline.js";
+import { maxProviderCalls } from "../config/researchLimits.js";
 import { withProviderCalls } from "../lib/providerCalls.js";
 export type { PipelineDeps, RunRecord } from "../types/pipeline.js";
 
@@ -14,9 +15,9 @@ export async function runPipeline(
   const state: Checkpoint = structuredClone(record.checkpoint);
   const check = async () => {
     if (signal.aborted) throw new RunStopped("Run stopped");
-    if (Date.now() - record.startedAt.getTime() > 8 * 60_000)
+    if (Date.now() - record.startedAt.getTime() > 15 * 60_000)
       throw new PermanentError(
-        "Research exceeded its eight-minute time budget.",
+        "Research exceeded its fifteen-minute time budget.",
       );
     await deps.check();
   };
@@ -30,8 +31,10 @@ export async function runPipeline(
   };
   const reserve = async (status: ResearchStatus, progress: number) => {
     await check();
-    if ((state.calls || 0) >= 16)
-      throw new PermanentError("Research reached its provider-call budget.");
+    if ((state.calls || 0) >= maxProviderCalls)
+      throw new PermanentError(
+        `Research reached its provider-call budget (${maxProviderCalls} calls across all attempts).`,
+      );
     state.calls = (state.calls || 0) + 1;
     await save(status, progress);
   };

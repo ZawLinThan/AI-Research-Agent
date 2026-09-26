@@ -29,7 +29,7 @@ export const createInitialPlan = async (
       - the relevant entity types
       - the main dimensions needed to answer the question
   
-      Then generate diverse search queries.
+      Then generate diverse, up-to-date search queries using today date. The current date is provided. 
   
       Rules:
       1. Preserve the user's original meaning.
@@ -37,7 +37,7 @@ export const createInitialPlan = async (
       3. Infer entity types from the domain.
       4. When the user asks for "leading", "top", or "best", identify the real-world entities that are most relevant to that domain.
       5. Search queries should cover different dimensions and avoid redundancy.
-      6. Use current information when the question is time-sensitive.
+      6. Use up-to-date information when the question is time-sensitive. Current date is given.
       7. Do not assume all organizations are universities, companies, nonprofits, or research institutes. Infer the appropriate types from context.
       8. Include named entities in queries only when they are likely relevant, but do not hardcode domain-specific companies.
       9. Prefer broad discovery queries first, then narrower comparison or evidence queries.
@@ -49,6 +49,7 @@ export const createInitialPlan = async (
     { question, depth, scope },
     planSchema,
     signal,
+    1400,
   );
 };
 
@@ -71,6 +72,11 @@ export const reviewPlan = async (
 
     Evaluate whether the proposed search plan will retrieve enough
     high-quality evidence to answer the user's original request.
+
+    Evaluate whether all queries in the plan will answer the user's question 
+    straightforwardly or not. If any query doesn't directly answer the question 
+    or hitting from the wrong angle, mark 'valid' to false, and add this in the issues
+    and revisionInstructions.
 
     Check:
 
@@ -101,6 +107,7 @@ export const reviewPlan = async (
     },
     planReviewSchema,
     signal,
+    1400,
   );
 };
 
@@ -151,5 +158,6 @@ export const revisePlan = async (
     },
     planSchema,
     signal,
+    1400,
   );
 };

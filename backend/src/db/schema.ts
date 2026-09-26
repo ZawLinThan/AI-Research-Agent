@@ -13,11 +13,11 @@ import type {
   ResearchPlan,
   ResearchStatus,
 } from "../../../shared/research.js";
+
 export const researchProjects = pgTable(
   "research_projects",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    // Legacy records have no owner and are inaccessible through the authenticated API.
     ownerId: uuid("owner_id"),
     requestId: uuid("request_id"),
     question: text("question").notNull(),
@@ -40,6 +40,7 @@ export const researchProjects = pgTable(
     index("research_status_updated_idx").on(t.status, t.updatedAt),
   ],
 );
+
 export const researchSources = pgTable(
   "research_sources",
   {

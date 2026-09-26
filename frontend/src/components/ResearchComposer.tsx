@@ -67,7 +67,7 @@ export const ResearchComposer = ({
         </div>
         <button
           className="primary-button"
-          disabled={busy || !userId || !prompt.trim()}
+          disabled={busy || !userId}
           onClick={start}
         >
           {busy

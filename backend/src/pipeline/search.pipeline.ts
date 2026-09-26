@@ -1,6 +1,11 @@
 import { reviewSearch, search } from "../services/search.service.js";
 import type { Source } from "../types/research.js";
 import type { ResearchPlan } from "../zodSchema/research.schema.js";
+import { SearchReview } from "../zodSchema/search.schema.js";
+
+const calculateScore = (review: SearchReview) => {
+  return (review.coverageScore+review.relevanceScore+review.sourceQualityScore)/3.0; 
+}
 
 export const searchForSources = async (
   searches: Record<string, Source[]>,
@@ -19,6 +24,8 @@ export const searchForSources = async (
       return;
     }
 
+    console.log("Searching for query: ", query); 
+    
     searches[query] = await deps.search(query, scope, signal);
     await checkpoint();
   };
@@ -26,23 +33,23 @@ export const searchForSources = async (
   for (const query of plan.queries) {
     await execute(query);
   }
+  
+  console.log("Initial Search done")
 
   for (let round = 0; round <= 2; round++) {
     signal.throwIfAborted();
-
+  
     const review = await deps.review(question, plan, searches, signal);
-
-    if (review.sufficient || round === 2) {
-      break;
-    }
-
+    console.log("Review round", round, review);
+  
+    if (review.sufficient || round === 2) break;
+  
     const queries = [...new Set(review.followUpQueries)]
       .filter((q) => !Object.hasOwn(searches, q))
       .slice(0, 2);
-
-    if (!queries.length) {
-      break;
-    }
+  
+    if (queries.length === 0) break;
+  
     for (const query of queries) {
       await execute(query);
     }
