@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderReport, verifyFindings } from "../report.service.js";
+import {
+  createReportLayout,
+  renderReport,
+  verifyFindings,
+} from "../report.service.js";
 import { client } from "../../config/openRouterAI.js";
 import { readableEvidence } from "../../../../shared/readableEvidence.js";
 import type { Source } from "../../types/research.js";
@@ -147,5 +151,81 @@ test("expanded extraction retains longer evidence and produces up to twelve grou
           s.highlights.some((h) => h.includes(f.evidence[0].quote)),
       ),
     ),
+  );
+});
+
+test("the introduction is independently paraphrased, cited, and saved without changing detail bullets", async (t) => {
+  const summary =
+    "Redis-backed queues coordinate work while allowing unsuccessful jobs to be attempted again after a delay.";
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    calls++;
+    const input = JSON.parse(request.messages[1].content);
+    assert.equal(input.findings.length, analysis.findings.length);
+    if (calls === 1) {
+      assert.match(
+        request.messages[0].content,
+        /Paraphrase.*ALL|ALL.*Paraphrase/,
+      );
+      assert.deepEqual(input.gaps, analysis.gaps);
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary,
+                overview: [0, 1, 999],
+                sections: [
+                  { heading: "Storage and retries", findingIndexes: [0, 1] },
+                ],
+              }),
+            },
+          },
+        ],
+      };
+    }
+    assert.equal(input.summary, summary);
+    assert.deepEqual(input.summaryFindingIndexes, [0, 1]);
+    return { choices: [{ message: { content: '{"valid":true}' } }] };
+  });
+  const layout = await createReportLayout("How do queues work?", analysis);
+  const report = renderReport(
+    "How do queues work?",
+    analysis,
+    [source],
+    layout,
+  );
+  const introduction = report.split("\n\n")[1];
+  assert.equal(layout.summary, summary);
+  assert.equal(introduction, `${summary} [${source.id}]`);
+  for (const finding of analysis.findings) {
+    assert.ok(!introduction.includes(finding.claim));
+    assert.ok(report.includes(`- ${finding.claim}`));
+  }
+  assert.equal(calls, 2);
+});
+
+test("unfaithful or copied summaries cannot be published", async (t) => {
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async () => ({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify(
+            ++calls === 1
+              ? {
+                  summary: "Redis guarantees that all jobs succeed.",
+                  overview: [0],
+                  sections: [{ heading: "Details", findingIndexes: [0, 1] }],
+                }
+              : { valid: false },
+          ),
+        },
+      },
+    ],
+  }));
+  await assert.rejects(
+    createReportLayout("How do queues work?", analysis),
+    /support and paraphrase check/,
   );
 });

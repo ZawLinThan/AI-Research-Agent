@@ -40,6 +40,8 @@ export type Checkpoint = {
 };
 
 export type ReportLayout = {
+  // Optional only for checkpoints created before synthesized summaries.
+  summary?: string;
   overview: number[];
   sections: { heading: string; findingIndexes: number[] }[];
 };

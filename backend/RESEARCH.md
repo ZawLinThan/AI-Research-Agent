@@ -178,3 +178,17 @@ Concurrent runs retain separate logs through async context tracking.
 connection/recovery errors, and all run output. Files are appended synchronously so
 already-written diagnostics survive termination. Log write failures are reported
 to stderr without stopping research. The existing `.gitignore` excludes `logs/`.
+
+### Review queries and opening summary
+
+Review-generated queries are appended to the plan before their search request and
+saved through the existing checkpoint transaction to both `research_plan` and
+`checkpoint.plan`. Failed requests resume from that saved plan. When older runs
+resume, cached search queries are merged into the plan without duplicates.
+
+New report layouts store a separately written `summary`: a short paragraph that
+paraphrases the main takeaways across all verified findings and preserves relevant
+limitations. The summary receives a separate support/paraphrase check and cites
+its supporting findings. Detailed bullets retain the verified claims. Resumed
+layouts missing a summary are regenerated; previously completed reports are not
+rewritten automatically. No database migration is needed for these JSON fields.

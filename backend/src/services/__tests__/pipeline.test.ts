@@ -148,7 +148,7 @@ test("provider budgets and deadlines survive retries", async () => {
     /budget/,
   );
   f.record.checkpoint = {};
-  f.record.startedAt = new Date(Date.now() - 9 * 60_000);
+  f.record.startedAt = new Date(Date.now() - 16 * 60_000);
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /time budget/,
@@ -247,4 +247,86 @@ test("nested calls cannot bypass the remaining budget on a retried run", async (
   );
   assert.equal(requests, 1);
   assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("review queries reach the persisted plan before dispatch and survive retries", async () => {
+  const { searchForSources } =
+    await import("../../pipeline/search.pipeline.js");
+  const f = fixture();
+  let failFollowUp = true;
+  const searched: string[] = [];
+  f.deps.search = (searches, question, plan, scope, signal, checkpoint) =>
+    searchForSources(searches, question, plan, scope, signal, checkpoint, {
+      search: async (query) => {
+        searched.push(query);
+        if (query === "follow up") {
+          assert.ok(f.record.checkpoint.plan?.queries.includes(query));
+          if (failFollowUp) throw new Error("temporary search failure");
+        }
+        return [source];
+      },
+      review: async () => ({
+        sufficient: false,
+        relevanceScore: 1,
+        coverageScore: 0.5,
+        sourceQualityScore: 1,
+        missingEvidence: [],
+        weakAreas: [],
+        followUpQueries: ["follow up", "follow up"],
+        reason: "Need more evidence",
+      }),
+    });
+  await assert.rejects(
+    runPipeline(f.record, f.deps, new AbortController().signal),
+    /temporary search failure/,
+  );
+  assert.deepEqual(f.record.checkpoint.plan?.queries, [
+    "q1",
+    "q2",
+    "follow up",
+  ]);
+  failFollowUp = false;
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.deepEqual(searched, ["q1", "q2", "follow up", "follow up"]);
+  assert.deepEqual(f.record.checkpoint.plan?.queries, [
+    "q1",
+    "q2",
+    "follow up",
+  ]);
+  assert.equal(f.states.at(-1), "completed");
+});
+
+test("resuming old checkpoints adds cached review queries to the saved plan", async () => {
+  const f = fixture();
+  f.record.checkpoint = {
+    plan: { queries: ["q1"] },
+    searches: { q1: [source], "old follow up": [source] },
+    searchComplete: true,
+  };
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.deepEqual(f.record.checkpoint.plan?.queries, ["q1", "old follow up"]);
+  assert.equal(f.searchCalls.length, 0);
+});
+
+test("resumed layouts without a summary are regenerated and checkpointed", async () => {
+  const f = fixture();
+  f.record.checkpoint.reportLayout = {
+    overview: [0],
+    sections: [{ heading: "Details", findingIndexes: [0] }],
+  };
+  let calls = 0;
+  f.deps.present = async () => {
+    calls++;
+    return {
+      summary: "Queue processing relies on Redis-backed state.",
+      overview: [0],
+      sections: [{ heading: "Details", findingIndexes: [0] }],
+    };
+  };
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(calls, 1);
+  assert.equal(
+    f.record.checkpoint.reportLayout?.summary,
+    "Queue processing relies on Redis-backed state.",
+  );
 });

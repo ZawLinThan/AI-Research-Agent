@@ -81,5 +81,5 @@ test("search checkpoints survive a review failure and follow-up queries are boun
   assert.equal(checkpoints, 1);
   await run();
   assert.deepEqual(calls, ["initial", "follow up"]);
-  assert.equal(checkpoints, 2);
+  assert.equal(checkpoints, 3);
 });

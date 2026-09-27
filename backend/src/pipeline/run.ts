@@ -57,6 +57,10 @@ export async function runPipeline(
     await save("planning", 15);
   }
   state.searches ||= {};
+  // Older checkpoints stored review searches without adding them to the plan.
+  state.plan.queries = [
+    ...new Set([...state.plan.queries, ...Object.keys(state.searches)]),
+  ];
   if (!state.searchComplete) {
     state.searches = await execute("searching", 20, () =>
       deps.search(
@@ -94,20 +98,20 @@ export async function runPipeline(
     throw new PermanentError(
       "The retrieved evidence did not support a reliable answer. Try narrowing the question.",
     );
-  if (!state.reportLayout) {
+  if (!state.reportLayout || (deps.present && !state.reportLayout.summary)) {
     state.reportLayout = deps.present
       ? await execute("generating_report", 94, () =>
           deps.present!(record.question, state.verified!, signal),
         )
       : {
-            overview: [],
-            sections: [
-              {
-                heading: "Key findings",
-                findingIndexes: state.verified!.findings.map((_, i) => i),
-              },
-            ],
-          };
+          overview: [],
+          sections: [
+            {
+              heading: "Key findings",
+              findingIndexes: state.verified!.findings.map((_, i) => i),
+            },
+          ],
+        };
     await save("generating_report", 97);
   }
   await save(

@@ -1,3 +1,4 @@
+import { ModelOutputError } from "../lib/errors.js";
 import { z } from "zod";
 import type { Analysis, Source } from "../../../shared/research.js";
 import type { ReportLayout } from "../types/research.js";
@@ -33,7 +34,8 @@ export async function verifyFindings(
 }
 
 const reportLayoutSchema = z.object({
-  overview: z.array(z.number().int().nonnegative()).max(3),
+  summary: z.string().trim().min(1).max(1200),
+  overview: z.array(z.number().int().nonnegative()).min(1).max(12),
   sections: z
     .array(
       z.object({
@@ -50,9 +52,10 @@ export async function createReportLayout(
   signal?: AbortSignal,
 ): Promise<ReportLayout> {
   const result = await structured(
-    'Organize the supplied already-verified findings into a readable web-search-style research overview. Return {"overview":[0],"sections":[{"heading":"Market leaders","findingIndexes":[0]}]}. Select one to three findings that answer the question directly; their sentences will form a short opening paragraph. Group every finding (including those selected for the opening answer) into specific, descriptive topic sections. Aim for two to four related bullets per section and three to five sections when supported; avoid one-bullet sections by combining related topics. Preserve concrete details and qualifications. Use headings that reflect the actual dimensions in the supplied findings. Do not add, rewrite, rank, or infer facts; only arrange the supplied findings. Each finding index must be copied from its zero-based position. Do not create empty sections.',
+    'Write a research report introduction and organize the already-verified findings. Return {"summary":"A short, direct answer in fresh wording.","overview":[0,1],"sections":[{"heading":"Specific topic","findingIndexes":[0,1]}]}. summary must be one cohesive paragraph of 2–4 sentences that directly answers the question and synthesizes the main takeaways across ALL topic sections. Paraphrase and connect the findings in your own words; do not copy, concatenate, or lightly rearrange sentences from the findings or bullet sections. Preserve important qualifications and uncertainty, including material gaps. Do not introduce facts, causal claims, rankings, or recommendations unsupported by the supplied findings. No headings, bullets, or citation markers inside summary. overview must list the zero-based indexes of all findings supporting the summary, for citations. Group every finding into specific, descriptive sections with two to four related bullets where evidence permits. The sections only arrange finding indexes; do not rewrite findings or invent headings that assert unsupported conclusions. Avoid empty sections and duplicate indexes.',
     {
       question,
+      gaps: analysis.gaps,
       findings: analysis.findings.map((finding, index) => ({
         index,
         claim: finding.claim,
@@ -60,7 +63,7 @@ export async function createReportLayout(
     },
     reportLayoutSchema,
     signal,
-    1000,
+    1800,
   );
 
   const validIndexes = new Set(analysis.findings.map((_, index) => index));
@@ -88,7 +91,38 @@ export async function createReportLayout(
       findingIndexes: remaining,
     });
 
-  return { overview: uniqueValid(result.overview), sections };
+  const overview = uniqueValid(result.overview);
+  if (!overview.length)
+    throw new ModelOutputError(
+      "The report summary has no valid supporting findings.",
+      "schema_validation",
+      [{ path: "overview", code: "invalid_reference" }],
+    );
+  const summary = result.summary.replace(/\s+/g, " ").trim();
+  const review = await structured(
+    'Check this opening summary against the verified findings and gaps. Return {"valid":true} only if it directly answers the question, fairly synthesizes the main topics, preserves important uncertainty, and uses fresh wording rather than copying or concatenating finding sentences. Shared names and technical terms are fine. Every factual assertion must be supported by the findings whose index appears in summaryFindingIndexes. Reject new facts, exaggerated conclusions, and unsupported recommendations.',
+    {
+      question,
+      summary,
+      summaryFindingIndexes: overview,
+      findings: analysis.findings.map((finding, index) => ({
+        index,
+        claim: finding.claim,
+      })),
+      gaps: analysis.gaps,
+    },
+    z.object({ valid: z.boolean() }),
+    signal,
+    300,
+  );
+  if (!review.valid)
+    throw new ModelOutputError(
+      "The opening summary did not pass the support and paraphrase check.",
+      "schema_validation",
+      [{ path: "summary", code: "unsupported_or_unfaithful_summary" }],
+    );
+
+  return { summary, overview, sections };
 }
 
 export function renderReport(
@@ -108,7 +142,9 @@ export function renderReport(
   const overviewIndexes = layout?.overview.length
     ? layout.overview
     : analysis.findings.slice(0, 2).map((_, index) => index);
-  const overview = overviewIndexes.map(finding).filter(Boolean).join(" ");
+  const overview = layout?.summary
+    ? `${layout.summary} ${citations(overviewIndexes.flatMap((index) => analysis.findings[index]?.evidence.map((e) => e.sourceId) ?? []))}`
+    : overviewIndexes.map(finding).filter(Boolean).join(" ");
   const used = new Set<number>();
   const sections = (
     layout?.sections ?? [
