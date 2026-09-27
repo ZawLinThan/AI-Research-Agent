@@ -1,7 +1,8 @@
+import { normalizeEvidenceSelection } from "../lib/modelOutputNormalization.js";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 
-import { structured } from "../config/groqAI.js";
+import { structured } from "../config/openRouterAI.js";
 import { Source } from "../types/research.js";
 import { Analysis, analysisSchema } from "../zodSchema/research.schema.js";
 
@@ -75,11 +76,18 @@ export async function analyzeEvidence(
         excerptId: `${source.id}:${index}`,
         sourceId: source.id,
         title: source.title.slice(0, 120),
-        text: text.slice(0, 450),
+        text: text.slice(0, 900),
       })),
   );
 
-  console.log("Excerpts: ",excerpts); 
+  // Share a bounded evidence budget fairly across sources, retaining longer
+  // excerpts when fewer sources are available.
+  const perExcerpt = Math.min(
+    900,
+    Math.floor(6500 / Math.max(1, Math.min(10, excerpts.length))),
+  );
+  for (const excerpt of excerpts)
+    excerpt.text = excerpt.text.slice(0, perExcerpt);
 
   if (!excerpts.length)
     return {
@@ -92,33 +100,69 @@ export async function analyzeEvidence(
     findings: z
       .array(
         z.object({
-          claim: z.string().min(1).max(400),
+          claim: z.string().min(1).max(600),
           excerptIds: z
-            // Keep the provider-facing schema simple. Groq can emit values
+            // Keep the provider-facing schema simple. OpenRouter can emit values
             // outside a dynamically generated enum even when given the IDs.
             // We validate every ID against this request's excerpts below.
             .array(z.string().min(1).max(100))
             .min(1)
             .max(2),
         }),
-      ),
-      //.max(5),
+      )
+      .max(6),
     gaps: analysisSchema.shape.gaps,
   });
-  
-  const result = await structured(
-    'Analyze the supplied excerpts. Return {"findings":[{"claim":"a precise factual claim","excerptIds":["provided excerpt ID"]}],"gaps":["unanswered question or contradiction"]}. For excerptIds, copy the excerptId value exactly from the supplied excerpts; do not use sourceId or invent IDs. Maximum 5 concise findings, each claim under 400 characters. Select one or two excerpt IDs that directly support each claim. Do not generate quotations. If evidence is inadequate return fewer or no findings. Identify conflicting evidence and limitations. Return only findings and gaps; include both fields even when empty. Follow-up searches have already been handled by the search pipeline.',
-    { question, excerpts },
-    selectionSchema,
-    signal,
-  );
+
+  const result: z.infer<typeof selectionSchema> = { findings: [], gaps: [] };
+  for (let offset = 0; offset < excerpts.length; offset += 10) {
+    const batchExcerpts = excerpts.slice(offset, offset + 10);
+    const suppliedIds = new Set(
+      batchExcerpts.map((excerpt) => excerpt.excerptId),
+    );
+    // Preserve the existing source-ID fallback only for unambiguous sources.
+    for (const excerpt of batchExcerpts) {
+      if (
+        batchExcerpts.filter((other) => other.sourceId === excerpt.sourceId)
+          .length === 1
+      )
+        suppliedIds.add(excerpt.sourceId);
+    }
+    const batch = await structured(
+      'Analyze the supplied excerpts. Return {"findings":[{"claim":"a precise factual claim","excerptIds":["provided excerpt ID"]}],"gaps":["unanswered question or contradiction"]}. For excerptIds, copy the excerptId value exactly from the supplied excerpts; do not use sourceId or invent IDs. Aim for 4–6 distinct, useful findings from this batch when the evidence supports them, each under 600 characters. Start with findings that directly answer the question, then cover specific dimensions with concrete facts, relevant numbers, dates, examples, comparisons, and qualifications. Write complete, plain-English sentences; explain technical terms and remove extraction markup. Do not pad or repeat findings to meet a count. excerptIds must be an array of exactly one or two distinct strings, never more than two. Select the strongest evidence that directly supports the whole claim. Do not generate quotations. If evidence is inadequate return fewer or no findings. Identify conflicting evidence and limitations. gaps must be an array of at most five plain strings, each under 300 characters; never objects, arrays, nulls, or numbers. Example: "gaps":["Comparable figures for the same year were not available."]. Return only findings and gaps; include both fields even when empty. Follow-up searches have already been handled by the search pipeline.',
+      { question, excerpts: batchExcerpts },
+      selectionSchema,
+      signal,
+      2000,
+      (value) => normalizeEvidenceSelection(value, suppliedIds),
+    );
+    result.findings.push(...batch.findings);
+    result.gaps.push(...batch.gaps);
+  }
+  result.gaps = [...new Set(result.gaps)].slice(0, 5);
+  result.findings = result.findings
+    .filter(
+      (finding, index, all) =>
+        all.findIndex(
+          (other) => other.claim.toLowerCase() === finding.claim.toLowerCase(),
+        ) === index,
+    )
+    .slice(0, 12);
 
   const byId = new Map(excerpts.map((e) => [e.excerptId, e]));
-  const bySourceId = new Map(excerpts.map((e) => [e.sourceId, e]));
+  const bySourceId = new Map(
+    excerpts
+      .filter(
+        (e) =>
+          excerpts.filter((other) => other.sourceId === e.sourceId).length ===
+          1,
+      )
+      .map((e) => [e.sourceId, e]),
+  );
   const supportedFindings = result.findings.flatMap((finding) => {
     const evidence = finding.excerptIds
       // Some model responses cite the supplied sourceId instead of excerptId.
-      // Each source contributes at most one excerpt here, so this is unambiguous.
+      // Fall back only when a source has exactly one excerpt.
       .map((id) => byId.get(id) ?? bySourceId.get(id))
       .filter((excerpt): excerpt is (typeof excerpts)[number] => !!excerpt)
       .map((excerpt) => ({ sourceId: excerpt.sourceId, quote: excerpt.text }));
@@ -126,7 +170,7 @@ export async function analyzeEvidence(
     return evidence.length ? [{ claim: finding.claim, evidence }] : [];
   });
 
-  const groundedFindingsResult : Analysis =  groundedFindings(
+  const groundedFindingsResult: Analysis = groundedFindings(
     {
       ...result,
       // Retain the stored Analysis shape without asking the model for unused queries.
@@ -137,5 +181,5 @@ export async function analyzeEvidence(
   );
 
   console.log("Grounded Finding Results: ", groundedFindingsResult);
-  return groundedFindingsResult; 
+  return groundedFindingsResult;
 }

@@ -11,20 +11,20 @@ export const maxProviderCalls = z.coerce
   .default(40)
   .parse(process.env.RESEARCH_MAX_PROVIDER_CALLS);
 
-// Set these to the limits for the Groq organization/model used by this deployment.
-export const groqTokensPerMinute = z.coerce
+// Set these to the limits for the OpenRouter organization/model used by this deployment.
+export const openRouterTokensPerMinute = z.coerce
   .number()
   .int()
   .positive()
   .default(8000)
-  .parse(process.env.GROQ_TOKENS_PER_MINUTE);
-  
-export const groqRequestsPerMinute = z.coerce
+  .parse(process.env.OPENROUTER_TOKENS_PER_MINUTE);
+
+export const openRouterRequestsPerMinute = z.coerce
   .number()
   .int()
   .positive()
   .default(30)
-  .parse(process.env.GROQ_REQUESTS_PER_MINUTE);
+  .parse(process.env.OPENROUTER_REQUESTS_PER_MINUTE);
 
 // Avoid spending most of a run's deadline waiting behind another local run.
 export const researchWorkerConcurrency = z.coerce

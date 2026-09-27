@@ -124,7 +124,7 @@ async function main() {
         await writeFile("/tmp/fieldwork-live-report.md", p.report);
         console.log(
           JSON.stringify({
-            verified: "Live API → queue → worker → Exa → Groq → Postgres → API",
+            verified: "Live API → queue → worker → Exa → OpenRouter → Postgres → API",
             sources: p.sources.length,
             reportCharacters: p.report.length,
           }),

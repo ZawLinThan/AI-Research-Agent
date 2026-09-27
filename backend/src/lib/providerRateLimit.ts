@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type IORedis from "ioredis";
 import { PermanentError } from "./errors.js";
 
-export type Provider = "groq" | "exa";
+export type Provider = "openrouter" | "exa";
 
 export const providerStatus = (error: any): number | undefined =>
   error?.status ?? error?.statusCode ?? error?.response?.status;

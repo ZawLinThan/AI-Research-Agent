@@ -3,9 +3,15 @@
 ## Run locally
 
 1. Configure the root `.env`: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
-   `GROQ_API_KEY`, `EXA_API_KEY`. Optional: `GROQ_MODEL` (default
-   `openai/gpt-oss-120b`), `REDIS_URL`, or `REDIS_HOST`, `REDIS_PORT`,
+   `OPENROUTER_API_KEY`, `EXA_API_KEY`. Optional: `OPENROUTER_MODEL` (default
+   `nvidia/nemotron-3.5-lightning`), `REDIS_URL`, or `REDIS_HOST`, `REDIS_PORT`,
    `REDIS_PASSWORD`. Never expose provider secrets in Vite variables.
+   Create an OpenRouter key at https://openrouter.ai/settings/keys. Groq keys cannot be reused.
+   The model receives the output schema in its prompt; responses are validated locally
+   with Zod and get one correction attempt. No unsupported `response_format` is sent.
+   Nemotron structured calls disable reasoning to leave the completion budget for JSON.
+   A truncated response gets one retry with twice the output allowance; Redis admission
+   includes that larger allowance and continues to enforce the configured token limit.
 2. Use the existing Redis service, or `docker compose -f compose.research.yml up -d`.
    Do not start a second Redis on port 6379. The provided configuration persists
    queue state in a volume with AOF and uses `noeviction`.
@@ -38,7 +44,7 @@ follow-ups. Invalid model structures receive one correction attempt with require
 fields explicitly listed; every nested request and correction counts against the
 provider-call budget. Successful searches are checkpointed before review. Context is capped at two
 900-character excerpts per source. A run allows at most 40 provider calls
-across attempts and eight minutes from first execution. Groq requests time out
+across attempts and eight minutes from first execution. OpenRouter requests time out
 at 60 seconds and search at 45 seconds. Transient failures retry up to three total
 attempts with provider-aware exponential backoff. Invalid credentials/requests and insufficient
 evidence fail without repeated attempts. Small account/provider limits can still
@@ -73,7 +79,7 @@ Old browser-local drafts are not automatically uploaded or assigned to an accoun
 - `npm run build --prefix frontend` and `npm run lint --prefix frontend`.
 - `node --import tsx backend/scripts/queue-resilience.ts`: temporary isolated Redis;
   retry, worker crash, Redis outage, and restart persistence checks.
-- `node --import tsx backend/scripts/integration-smoke.ts`: live paid Exa/Groq run
+- `node --import tsx backend/scripts/integration-smoke.ts`: live paid Exa/OpenRouter run
   through API → queue → worker → database. Uses short-lived synthetic Redis sessions,
   two synthetic owner IDs, a separate queue, and test-owned rows.
   Production auth configuration is never changed. Tests ownership and RLS, duplicate
@@ -108,18 +114,17 @@ a new submission.
 
 ### Provider rate limiting
 
-Workers coordinate Groq requests through a Redis rolling 60-second token/request
-window. Configure `GROQ_TOKENS_PER_MINUTE` (default 8000) and
-`GROQ_REQUESTS_PER_MINUTE` (default 30) to match your actual organization/model
+Workers coordinate OpenRouter requests through a Redis rolling 60-second token/request
+window. Configure `OPENROUTER_TOKENS_PER_MINUTE` (default 8000) and
+`OPENROUTER_REQUESTS_PER_MINUTE` (default 30) to match your actual organization/model
 allowance. Token reservations estimate serialized request bytes plus the maximum
 completion allowance; they are conservative estimates, not the model tokenizer.
 Do not increase these values just to bypass throttling. Workers for the same
-organization/model must share Redis and `GROQ_RATE_LIMIT_GROUP` (default `default`).
+organization/model must share Redis and `OPENROUTER_RATE_LIMIT_GROUP` (default `default`).
 Other apps using the organization may still cause 429 responses.
 
-On 429, Groq and Exa publish a shared cooldown and retry the individual request
-up to twice. `Retry-After` (seconds or date) takes priority, followed by Groq's
-token reset duration, with a 60-second fallback. Failed requests count against the
+On 429, OpenRouter and Exa publish a shared cooldown and retry the individual request
+up to twice. `Retry-After` (seconds or date) takes priority, followed by a provider token-reset header when present, with a 60-second fallback. Failed requests count against the
 run budget; waiting does not add extra calls. Persistent throttling goes to the
 queue, whose new `provider` backoff never waits less than the provider hint.
 Existing queued jobs retain their old backoff, but shared admission still blocks
@@ -138,6 +143,38 @@ reserves 800, and evidence analysis retains 2500. Analysis uses one excerpt of u
 to 450 characters per selected source while full retrieved highlights remain stored.
 This trades some evidence context for fitting the configured provider allowance.
 
-See https://console.groq.com/docs/rate-limits for response-header semantics and
-check your own account limits in the Groq console. Logs include the provider and
+See https://openrouter.ai/docs/api/reference/limits for response-header semantics and
+check your own account limits in the OpenRouter dashboard. Logs include the provider and
 retry delay; the user sees a rate-limit-specific message when retries are exhausted.
+
+
+### Report presentation and evidence detail
+
+New reports open with the question and a short, direct-answer paragraph, followed
+by topic headings with supporting bullets, limitations and open questions, and
+sources. Extraction aims for 8–12 grounded findings across two batches when enough
+evidence is available, with claims up to 600 characters and excerpts up to 900
+characters. Each batch shares a 6,500-character excerpt budget. Smaller evidence
+sets produce fewer findings; unsupported details are not added to fill sections.
+Verification runs in batches of four findings. Each provider request and correction
+still counts against the existing run budget.
+
+The frontend uses site logos for citations, with a globe fallback, and shows source
+names and domains rather than internal IDs. Evidence display removes HTML, Markdown,
+escaped whitespace, and extraction markers. Original excerpts remain unchanged for
+citation verification. Stored reports retain their existing structure; new runs use
+the updated format.
+
+### Worker log files
+
+`npm run worker` mirrors stdout and stderr into Markdown files in the repository's
+`logs/` directory while retaining terminal output. Each research run writes to
+`<question>+<start-time>+<project-id>.md`; the question is made filename-safe and
+bounded in length, and the project ID prevents collisions. Retries append to the
+same file, including provider diagnostics and the final failed/completed event.
+Concurrent runs retain separate logs through async context tracking.
+
+`worker+<start-time>+<pid>.md` contains the entire worker session, including startup,
+connection/recovery errors, and all run output. Files are appended synchronously so
+already-written diagnostics survive termination. Log write failures are reported
+to stderr without stopping research. The existing `.gitignore` excludes `logs/`.

@@ -1,16 +1,29 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { client, structured } from "../../config/groqAI.js";
+import { client, structured } from "../../config/openRouterAI.js";
 import { publicError } from "../../lib/errors.js";
+
+function promptSchema(request: any) {
+  const match = request.messages[0].content.match(
+    /JSON Schema: (.+)\. Return raw JSON/,
+  );
+  assert.ok(match, "The model must receive the complete output schema");
+  return JSON.parse(match[1]);
+}
 
 test("structured requests use object instructions and validate the response", async (t) => {
   t.mock.method(client.chat.completions, "create", async (request: any) => {
-    assert.equal(request.response_format.type, "json_schema");
-    assert.equal(request.response_format.json_schema.strict, true);
-    assert.deepEqual(request.response_format.json_schema.schema.required, [
-      "queries",
-    ]);
+    assert.equal(client.baseURL, "https://openrouter.ai/api/v1");
+    assert.equal(
+      request.model,
+      process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning",
+    );
+    assert.equal(request.max_tokens, 2500);
+    assert.equal(request.max_completion_tokens, undefined);
+    assert.equal(request.reasoning_effort, undefined);
+    assert.equal(request.response_format, undefined);
+    assert.deepEqual(promptSchema(request).required, ["queries"]);
     assert.match(request.messages[0].content, /only a JSON object/);
     assert.doesNotMatch(request.messages[0].content, /raw JSON array/);
     return {
@@ -76,14 +89,8 @@ test("analysis copies selected source excerpts exactly instead of generating quo
   ];
   let ids = ["S123:0"];
   t.mock.method(client.chat.completions, "create", async (request: any) => {
-    assert.deepEqual(request.response_format.json_schema.schema.required, [
-      "findings",
-      "gaps",
-    ]);
-    assert.equal(
-      request.response_format.json_schema.schema.properties.followUpQueries,
-      undefined,
-    );
+    assert.deepEqual(promptSchema(request).required, ["findings", "gaps"]);
+    assert.equal(promptSchema(request).properties.followUpQueries, undefined);
     assert.doesNotMatch(request.messages[0].content, /"followUpQueries"/);
     return {
       choices: [
@@ -224,13 +231,13 @@ test("search-review input and output stay bounded as results accumulate", async 
   );
 });
 
-test("worker scheduling retries Groq 429 in place and counts each actual request", async (t) => {
+test("worker scheduling retries OpenRouter 429 in place and counts each actual request", async (t) => {
   const { ProviderScheduler, configureProviderScheduler } =
     await import("../../lib/providerRateLimit.js");
   const { withProviderCalls } = await import("../../lib/providerCalls.js");
   const waits: number[] = [];
   configureProviderScheduler(
-    "groq",
+    "openrouter",
     new ProviderScheduler(
       { acquire: async () => 0, cooldown: async () => {} },
       async (n) => {
@@ -238,7 +245,7 @@ test("worker scheduling retries Groq 429 in place and counts each actual request
       },
     ),
   );
-  t.after(() => configureProviderScheduler("groq"));
+  t.after(() => configureProviderScheduler("openrouter"));
   let requests = 0,
     extraCalls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
@@ -278,7 +285,7 @@ test("exhausted corrections preserve missing-field diagnostics and provider iden
     (error: unknown) => {
       assert.ok(error instanceof ModelOutputError);
       assert.equal(error.name, "ModelOutputError");
-      assert.equal(error.provider, "groq");
+      assert.equal(error.provider, "openrouter");
       assert.equal(error.code, "json_validate_failed");
       assert.deepEqual(modelValidationDetails(error), {
         kind: "schema_validation",
@@ -382,4 +389,59 @@ test("analysis without excerpts keeps the legacy empty-query field without a mod
   const result = await analyzeEvidence("Question", []);
   assert.deepEqual(result.followUpQueries, []);
   assert.deepEqual(result.findings, []);
+});
+
+test("truncation retries with more output tokens and reserves the larger budget", async (t) => {
+  const { configureProviderScheduler, ProviderScheduler } =
+    await import("../../lib/providerRateLimit.js");
+  const reservations: number[] = [];
+  configureProviderScheduler(
+    "openrouter",
+    new ProviderScheduler({
+      acquire: async (tokens) => {
+        reservations.push(tokens);
+        return 0;
+      },
+      cooldown: async () => {},
+    }),
+  );
+  t.after(() => configureProviderScheduler("openrouter"));
+  const previousModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning";
+  t.after(() => {
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  });
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    calls++;
+    assert.deepEqual(request.reasoning, { enabled: false });
+    assert.equal(request.max_tokens, calls === 1 ? 1400 : 2800);
+    if (calls === 1)
+      return {
+        choices: [
+          { finish_reason: "length", message: { content: '{"queries":[' } },
+        ],
+      };
+    return {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: { content: '{"queries":["queue retries"]}' },
+        },
+      ],
+    };
+  });
+  assert.deepEqual(
+    await structured(
+      "Plan",
+      {},
+      z.object({ queries: z.array(z.string()) }),
+      undefined,
+      1400,
+    ),
+    { queries: ["queue retries"] },
+  );
+  assert.equal(calls, 2);
+  assert.ok(reservations[1]! >= reservations[0]! + 1400);
 });

@@ -13,8 +13,8 @@ export const env = z
     REDIS_HOST: z.string().default("localhost"),
     REDIS_PORT: z.coerce.number().default(6379),
     REDIS_PASSWORD: z.string().optional(),
-    GROQ_API_KEY: z.string().min(1),
-    GROQ_MODEL: z.string().default("openai/gpt-oss-120b"),
+    OPENROUTER_API_KEY: z.string().min(1),
+    OPENROUTER_MODEL: z.string().default("nvidia/nemotron-3.5-lightning"),
     EXA_API_KEY: z.string().min(1),
     FRONTEND_ORIGIN: z.string().url().default("http://127.0.0.1:5173"),
   })

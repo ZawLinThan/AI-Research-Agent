@@ -42,7 +42,7 @@ async function main() {
       )
     )
       throw new Error(
-        "Supply the UUID of a run authorized for replay to Groq.",
+        "Supply the UUID of a run authorized for replay to OpenRouter.",
       );
     const [row] = await db
       .select({

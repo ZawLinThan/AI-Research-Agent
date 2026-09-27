@@ -1,4 +1,4 @@
-import { structured } from "../config/groqAI.js";
+import { structured } from "../config/openRouterAI.js";
 import {
   ResearchPlan,
   planSchema,
@@ -17,7 +17,7 @@ export const createInitialPlan = async (
 
   return structured(
     `
-      You are a general-purpose research planning agent.
+      You are a research planning agent.
   
       Current date: ${currentDate}
   
@@ -30,21 +30,9 @@ export const createInitialPlan = async (
       2. The most consequential comparisons, causes, or evidence for that domain.
       3. Additional dimensions only if they materially improve the answer.
 
-
       For a broad comparison, prioritize what the entities do, their most
       important differences, current evidence, and domain-relevant performance.
-      Do not fill slots with merely plausible side topics. Include topics such
-      as ESG, governance, careers, or litigation only when requested or clearly
-      central to the question.
-
-      For "top", "best", or "leading" organization questions, first look for
-      reputable current rankings or roundups that directly match the requested
-      domain and year, including their stated criteria. Also search for recent
-      evidence about the leading entities. Do not combine unrelated metrics
-      such as patents, market value, brand growth, and employee satisfaction
-      into one implied ranking; keep those as distinct dimensions unless the
-      user names a single ranking criterion. Do not search workplace lists
-      unless the user asks about employers or places to work.
+      Do not fill slots with merely plausible side topics.
 
       Time rules: 
       - Seek the latest information available as of the current date. 
@@ -55,19 +43,15 @@ export const createInitialPlan = async (
       - Before returning, check every query against the supplied date.
     
       Source Rules:
-      1. Preserve the user's original meaning.
-      2. Do not arbitrarily narrow broad terms.
-      3. Infer entity types from the domain.
-      4. When the user asks for "leading", "top", or "best", identify the real-world entities that are most relevant to that domain.
-      5. Search queries should cover different dimensions and avoid redundancy.
-      6. Must use the up-to-date information
-      7. Do not assume all organizations are universities, companies, nonprofits, or research institutes. Infer the appropriate types from context.
-      8. Include named entities in queries only when they are likely relevant, but do not hardcode domain-specific companies.
-      9. Prefer broad discovery queries first, then narrower comparison or evidence queries.
-      10. Return {"queries":["specific search query"]}. 
-      11. Use 3 queries for Quick overview, 6 for Deep research. 
-      12. Cover distinct aspects. 
-      13. Respect the requested source scope. Do not answer the question.
+      - Preserve the user's original meaning.
+      - Do not arbitrarily narrow broad terms.
+      - Infer entity types from the domain.
+      - Search queries should cover different dimensions and avoid redundancy.
+      - Search queries must be about up-to-date information up to today date
+      - Prefer broad discovery queries first, then narrower comparison or evidence queries.
+      - Return {"queries":["specific search query"]}. 
+      - Use 4 queries for Quick overview, 6 for Deep research. 
+      - Respect the requested source scope. Do not answer the question.
       `,
     { question, depth, scope },
     planSchema,
@@ -87,7 +71,7 @@ export const reviewPlan = async (
 
   return structured(
     `
-    You are reviewing a research plan before web search.
+    You are reviewing a research plan for the following question before a web search.
 
     Current date: ${currentDate}
 
@@ -108,7 +92,7 @@ export const reviewPlan = async (
       - Before returning, check every query against the supplied date
 
     Evaluate whether all queries in the plan will answer the user's question 
-    straightforwardly or not. If any query doesn't directly answer the question 
+    without redundant information or not. If any query doesn't directly answer the question 
     or hitting from the wrong angle, mark 'valid' to false, and add this in the issues
     and revisionInstructions.
 
@@ -167,21 +151,28 @@ export const revisePlan = async (
     Do NOT answer the user's question.
     Return only a corrected research plan.
 
+    Time rules: 
+    - Seek the latest information available as of the current date. 
+    - The latest completed annual period may be earlier than the current year. Also seek newer interim information when relevant.
+    - Use older periods only for trends, historical context, or when they are the 
+      latest available evidence. Do not default to an older year from memory.
+    - Do not claim that a future or unreleased report exists.
+    - Before returning, check every query against the supplied date
+    
     Revision rules:
-    1. Preserve the user's original intent.
-    2. Fix every issue identified in the review when reasonable.
-    3. Add missing research angles identified by the review.
-    4. Remove or rewrite redundant queries.
-    5. Keep queries useful for a web search engine.
-    6. Do not make queries unnecessarily narrow.
-    7. For time-sensitive topics, prefer current information.
-    8. Do not add a year unless it improves search quality.
-    9. Do not introduce assumptions that are not supported by the user's question.
-    10. Each query should investigate a distinct aspect of the question.
-    11. Return the same research-plan structure as the original planner.
-    12. Respect the requested research depth.
-    13. Respect the requested source scope.
-    14. Use 3 queries for quick research and 6 queries for deep research.
+    - Preserve the user's original intent.
+    - Fix every issue identified in the review when reasonable.
+    - Add missing research angles identified by the review.
+    - Remove or rewrite redundant queries.
+    - Keep queries useful for a web search engine.
+    - Do not make queries unnecessarily narrow.
+    - Search queries must be about up-to-date information up to today date
+    - Do not introduce assumptions that are not supported by the user's question.
+    - Each query should investigate a distinct aspect of the question.
+    - Return the same research-plan structure as the original planner.
+    - Respect the requested research depth.
+    - Respect the requested source scope.
+    - Use 4 queries for quick research and 6 queries for deep research.
     `,
     {
       question,

@@ -66,8 +66,8 @@ test("Redis session operations enforce expiry, exclusive locks, conditional refr
   redis = new IORedis(socket, { lazyConnect: true, maxRetriesPerRequest: 1 });
   await redis.connect();
   // Independent limiter instances share atomic admission through Redis.
-  const firstGate = new RedisProviderGate(redis, "test-groq", 8000, 30);
-  const secondGate = new RedisProviderGate(redis, "test-groq", 8000, 30);
+  const firstGate = new RedisProviderGate(redis, "test-openrouter", 8000, 30);
+  const secondGate = new RedisProviderGate(redis, "test-openrouter", 8000, 30);
   const admissions = await Promise.all([
     firstGate.acquire(5000),
     secondGate.acquire(5000),

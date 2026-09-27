@@ -1,3 +1,4 @@
+import { SourceLogo } from "./SourceLogo";
 import type { Source } from "../../../shared/research";
 export const ReportView = ({
   report,
@@ -15,22 +16,23 @@ export const ReportView = ({
     seen.add(obj.id);
     return true;
   });
-  console.log("ReportView known sources:", uniqueSources);
 
   const inline = (line: string) => {
     return line.split(/(\[S[a-f0-9]{12}\])/g).map((part, i) => {
       const id = part.slice(1, -1);
 
-      return uniqueSources.some((source) => source.id === id) ? (
+      const source = uniqueSources.find((source) => source.id === id);
+      return source ? (
         <a
           className="citation-link"
-          href={uniqueSources.find((source) => source.id === id)?.url || "#"}
+          href={source.url}
           target="_blank"
           rel="noopener noreferrer"
           key={i}
-          title="View supporting source"
+          title={source.title}
+          aria-label={`Source: ${source.title}`}
         >
-          {part}
+          <SourceLogo source={source} />
         </a>
       ) : (
         part

@@ -8,7 +8,7 @@ export class PermanentError extends Error {
 }
 export type ModelValidationIssue = { path: string; code: string };
 export class ModelOutputError extends Error {
-  readonly provider = "groq";
+  readonly provider = "openrouter";
   readonly code = "json_validate_failed";
   correctionAttempted = false;
   constructor(
@@ -54,7 +54,7 @@ export function publicError(error: unknown) {
     provider?: string;
   };
   if ((details?.status ?? details?.response?.status) === 429)
-    return `${details.provider === "groq" ? "The AI provider" : details.provider === "exa" ? "The search provider" : "A research provider"} is rate-limiting requests. Please try again after its allowance resets.`;
+    return `${details.provider === "openrouter" ? "The AI provider" : details.provider === "exa" ? "The search provider" : "A research provider"} is rate-limiting requests. Please try again after its allowance resets.`;
   if (error instanceof PermanentError) return error.message;
   if (
     error instanceof ModelOutputError ||

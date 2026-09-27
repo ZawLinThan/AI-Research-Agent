@@ -1,3 +1,4 @@
+import { normalizeSearchReview } from "../lib/modelOutputNormalization.js";
 import "dotenv/config";
 import { z } from "zod";
 import axios from "axios";
@@ -7,12 +8,13 @@ import {
   sourcesSchema,
 } from "../zodSchema/search.schema.js";
 import { Source } from "../types/research.js";
-import { structured } from "../config/groqAI.js";
+import { structured } from "../config/openRouterAI.js";
 import { ResearchPlan } from "../zodSchema/research.schema.js";
 import { QuerySearchSummary } from "../types/search.js";
 
 import { scheduleProviderRequest } from "../lib/providerRateLimit.js";
 import { beforeProviderCall } from "../lib/providerCalls.js";
+import { exaClient } from "../config/exa.js";
 
 const querySchema = z.string().trim().min(1).max(5000);
 
@@ -111,6 +113,14 @@ const selectReviewSources = (
   return selected;
 };
 
+const loggingSource = (source: Source) => {
+  console.log("   title: ", source.title)
+  console.log("   url: ", source.url)
+  console.log("   highlights: ", source.highlights
+    .slice(0, 1)
+    .map((text) => text.slice(0, 250)),)
+}
+
 export const prepareSearchReview = (
   searches: Record<string, Source[]>,
 ): QuerySearchSummary[] => {
@@ -118,7 +128,15 @@ export const prepareSearchReview = (
   const entries = Object.entries(searches).slice(-10);
   const perQuery = Math.floor(10000 / Math.max(entries.length, 1)) - 1;
 
+  console.log("Search Summary for review is :");
+
   for (const [query, sources] of entries) {
+    console.log("query: ", query);
+    console.log("resultCount: ", sources.length)
+    console.log("sources: ")
+    sources.map(source => (
+      loggingSource(source)
+    ))
     const summary: QuerySearchSummary = {
       query: query.slice(0, 300),
       resultCount: sources.length,
@@ -149,7 +167,7 @@ export const reviewSearch = async (
   const currentDate = new Date().toISOString().split("T")[0];
 
   const searchSummary = prepareSearchReview(searches);
-  console.log("Search Summary for review is ", searchSummary);
+
   console.log("Reviewing search");
 
   return structured(
@@ -233,25 +251,20 @@ export const reviewSearch = async (
     searchReviewSchema,
     signal,
     1400,
+    normalizeSearchReview,
   );
 };
 
-import Exa from "exa-js";
-import { PermanentError } from "../lib/errors.js";
-const exa = () => {
-  if (!process.env.EXA_API_KEY)
-    throw new PermanentError("Web search is not configured.");
-  return new Exa(process.env.EXA_API_KEY);
-};
 export const searchWeb = async (query: string, numResults = 5) => {
   const checked = querySchema.parse(query);
   const count = z.number().int().min(1).max(10).parse(numResults);
-  return exa().search(checked, {
+  return exaClient.search(checked, {
     type: "auto",
     numResults: count,
     contents: { highlights: true },
   });
 };
+
 export const extractWeb = async (urls: string[]) => {
   const checked = z
     .array(
@@ -270,5 +283,5 @@ export const extractWeb = async (urls: string[]) => {
     .min(1)
     .max(10)
     .parse(urls);
-  return exa().getContents([...new Set(checked)], { highlights: true });
+  return exaClient.getContents([...new Set(checked)], { highlights: true });
 };

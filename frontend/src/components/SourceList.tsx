@@ -1,3 +1,5 @@
+import { readableEvidence } from "../../../shared/readableEvidence";
+import { SourceLogo } from "./SourceLogo";
 import { ArrowUpRight } from "lucide-react";
 import type { Source } from "../../../shared/research";
 export const SourceList = ({ sources }: { sources: Source[] }) => {
@@ -15,15 +17,19 @@ export const SourceList = ({ sources }: { sources: Source[] }) => {
         sources.map((s) => (
           <article className="source-item" id={`source-${s.id}`} key={s.id}>
             <a href={s.url} target="_blank" rel="noopener noreferrer">
-              {s.title}
+              <SourceLogo source={s} />
+              {readableEvidence(s.title)}
               <ArrowUpRight size={14} />
             </a>
-            <small>
-              {s.id} · {new URL(s.url).hostname}
-            </small>
-            {s.highlights.map((h, i) => (
-              <blockquote key={i}>{h}</blockquote>
-            ))}
+            <small>{new URL(s.url).hostname}</small>
+            {s.highlights
+              .map(readableEvidence)
+              .filter(Boolean)
+              .map((text, i) => (
+                <p className="source-excerpt" key={i}>
+                  {text}
+                </p>
+              ))}
           </article>
         ))
       )}

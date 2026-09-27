@@ -50,7 +50,7 @@ test("429 cooldown waits then retries only the provider request without failing 
   const scheduler = new ProviderScheduler(gate, async (n) => {
     waits.push(n);
   });
-  const result = await scheduler.run("groq", 1000, undefined, async () => {
+  const result = await scheduler.run("openrouter", 1000, undefined, async () => {
     if (++calls === 1) throw limited("5");
     return "completed";
   });
@@ -90,7 +90,7 @@ test("cancellation stops pending admission without sending a request", async () 
     },
   );
   await assert.rejects(
-    scheduler.run("groq", 1000, controller.signal, async () => {
+    scheduler.run("openrouter", 1000, controller.signal, async () => {
       calls++;
     }),
   );
@@ -106,7 +106,7 @@ test("non-rate errors are not retried or given a cooldown", async () => {
     },
   });
   await assert.rejects(
-    scheduler.run("groq", 100, undefined, async () => {
+    scheduler.run("openrouter", 100, undefined, async () => {
       calls++;
       throw Object.assign(new Error("invalid key"), { status: 401 });
     }),
