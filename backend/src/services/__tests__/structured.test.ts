@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { client, structured } from "../../config/openRouterAI.js";
-import { publicError } from "../../lib/errors.js";
+import { ModelOutputError, publicError } from "../../lib/errors.js";
 
 function promptSchema(request: any) {
   const match = request.messages[0].content.match(
@@ -416,8 +416,10 @@ test("truncation retries with more output tokens and reserves the larger budget"
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
     assert.deepEqual(request.reasoning, { enabled: false });
-    assert.equal(request.max_tokens, calls === 1 ? 1400 : 2800);
-    if (calls === 1)
+    assert.equal(request.max_tokens, 1400 * 2 ** (calls - 1));
+    if (calls > 1)
+      assert.match(request.messages[0].content, /compact JSON/);
+    if (calls < 3)
       return {
         choices: [
           { finish_reason: "length", message: { content: '{"queries":[' } },
@@ -442,6 +444,20 @@ test("truncation retries with more output tokens and reserves the larger budget"
     ),
     { queries: ["queue retries"] },
   );
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.ok(reservations[1]! >= reservations[0]! + 1400);
+  assert.ok(reservations[2]! >= reservations[1]! + 2800);
+});
+
+test("persistent truncation stops after three calls without accepting partial JSON", async (t) => {
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async () => {
+    calls++;
+    return { choices: [{ finish_reason: "length", message: { content: '{"reason":"partial"}' } }] };
+  });
+  await assert.rejects(
+    structured("Review", {}, z.object({ reason: z.string() })),
+    (error: unknown) => error instanceof ModelOutputError && error.kind === "truncated" && error.correctionAttempted,
+  );
+  assert.equal(calls, 3);
 });

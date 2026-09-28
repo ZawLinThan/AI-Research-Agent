@@ -50,7 +50,7 @@ export const createInitialPlan = async (
       - Search queries must be about up-to-date information up to today date
       - Prefer broad discovery queries first, then narrower comparison or evidence queries.
       - Return {"queries":["specific search query"]}. 
-      - Use 4 queries for Quick overview, 6 for Deep research. 
+      - Use 4 queries for quick research and 6 queries for deep research. 
       - Respect the requested source scope. Do not answer the question.
       `,
     { question, depth, scope },

@@ -3,7 +3,11 @@ import { PermanentError, RunStopped } from "../lib/errors.js";
 import { renderReport } from "../services/report.service.js";
 import type { Checkpoint, ResearchStatus } from "../types/research.js";
 import type { PipelineDeps, RunRecord } from "../types/pipeline.js";
-import { maxProviderCalls } from "../config/researchLimits.js";
+import {
+  maxProviderCalls,
+  researchTimeBudgetMs,
+  researchTimeBudgetMessage,
+} from "../config/researchLimits.js";
 import { withProviderCalls } from "../lib/providerCalls.js";
 export type { PipelineDeps, RunRecord } from "../types/pipeline.js";
 
@@ -15,10 +19,8 @@ export async function runPipeline(
   const state: Checkpoint = structuredClone(record.checkpoint);
   const check = async () => {
     if (signal.aborted) throw new RunStopped("Run stopped");
-    if (Date.now() - record.startedAt.getTime() > 15 * 60_000)
-      throw new PermanentError(
-        "Research exceeded its fifteen-minute time budget.",
-      );
+    if (Date.now() - record.startedAt.getTime() > researchTimeBudgetMs)
+      throw new PermanentError(researchTimeBudgetMessage);
     await deps.check();
   };
   const save = async (
@@ -75,15 +77,27 @@ export async function runPipeline(
     state.searchComplete = true;
     await save("searching", 50);
   }
-  state.sources = selectSources(Object.values(state.searches).flat());
-  if (!state.sources.length)
+  if (!state.evidence) {
+    state.sources = selectSources(Object.values(state.searches).flat());
+    if (deps.analyzeQueries) {
+      // Upgrade unfinished legacy runs to the per-query evidence workflow.
+      state.analysis = undefined;
+      state.verified = undefined;
+      state.reportLayout = undefined;
+    }
+  }
+  if (!state.sources?.length)
     throw new PermanentError(
       "No usable source excerpts were found. Try a more specific research question.",
     );
   await save("analyzing", 55);
   if (!state.analysis) {
     state.analysis = await execute("analyzing", 60, () =>
-      deps.analyze(record.question, state.sources!, signal),
+      deps.analyzeQueries
+        ? deps.analyzeQueries(record.question, state, signal, () =>
+            save("analyzing", 65),
+          )
+        : deps.analyze(record.question, state.sources!, signal),
     );
     await save("analyzing", 78);
   }

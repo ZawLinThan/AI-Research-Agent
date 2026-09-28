@@ -1,3 +1,4 @@
+import { analyzeQueryResults } from "../services/queryEvidence.service.js";
 import "../lib/workerLoggingBootstrap.js";
 import { workerLogging } from "../lib/workerLogging.js";
 import {
@@ -10,6 +11,8 @@ import {
   openRouterTokensPerMinute,
   openRouterRequestsPerMinute,
   researchWorkerConcurrency,
+  researchTimeBudgetMs,
+  researchTimeBudgetMessage,
 } from "../config/researchLimits.js";
 import { Worker, UnrecoverableError } from "bullmq";
 import {
@@ -83,13 +86,11 @@ export const researchWorker = new Worker(
         );
         const controller = new AbortController();
         const deadline = setTimeout(
-          () =>
-            controller.abort(
-              new PermanentError(
-                "Research exceeded its thirty-minute time budget.",
-              ),
-            ),
-          Math.max(0, 30 * 60000 - (Date.now() - project.startedAt!.getTime())),
+          () => controller.abort(new PermanentError(researchTimeBudgetMessage)),
+          Math.max(
+            0,
+            researchTimeBudgetMs - (Date.now() - project.startedAt!.getTime()),
+          ),
         );
         let stage = project.status;
         let checking = false;
@@ -125,6 +126,7 @@ export const researchWorker = new Worker(
               plan: createResearchPlan,
               search: searchForSources,
               analyze: analyzeEvidence,
+              analyzeQueries: analyzeQueryResults,
               verify: verifyFindings,
               present: createReportLayout,
             },
@@ -162,7 +164,8 @@ export const researchWorker = new Worker(
                 error instanceof PermanentError ? error.message : undefined,
             }),
           );
-          const final = !retryable(error) || job.attemptsMade + 1 >= 3;
+          const final =
+            !retryable(error) || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
           await failRun(project.id, token, publicError(error), final);
           if (final) throw new UnrecoverableError(publicError(error));
           throw error;
@@ -229,11 +232,11 @@ export async function reconcile() {
   reconciling = true;
   try {
     for (const row of await recoverableRuns()) {
-      if (row.startedAt && Date.now() - row.startedAt.getTime() > 15 * 60_000) {
-        await markOrphanFailed(
-          row.id,
-          "Research exceeded its fifteen-minute time budget.",
-        );
+      if (
+        row.startedAt &&
+        Date.now() - row.startedAt.getTime() > researchTimeBudgetMs
+      ) {
+        await markOrphanFailed(row.id, researchTimeBudgetMessage);
         continue;
       }
       const job = await researchQueue.getJob(row.id);

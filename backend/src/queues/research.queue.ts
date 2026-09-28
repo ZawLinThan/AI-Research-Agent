@@ -7,7 +7,7 @@ export const producerConnection = createRedis();
 export const researchQueue = new Queue(RESEARCH_QUEUE, {
   connection: producerConnection,
   defaultJobOptions: {
-    attempts: 3,
+    attempts: 10,
     backoff: { type: "provider" },
     removeOnComplete: { age: 86400, count: 1000 },
     removeOnFail: { age: 604800, count: 1000 },

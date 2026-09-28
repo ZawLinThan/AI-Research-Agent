@@ -3,7 +3,10 @@ import { z } from "zod";
 import type { Analysis, Source } from "../../../shared/research.js";
 import type { ReportLayout } from "../types/research.js";
 import { structured } from "../config/openRouterAI.js";
-import { groundedFindings } from "./evidence.service.js";
+import {
+  groundedFindings,
+  filterAnalysisFindings,
+} from "./evidence.service.js";
 
 export async function verifyFindings(
   question: string,
@@ -27,23 +30,20 @@ export async function verifyFindings(
       if (index < batch.length) supported.add(offset + index);
     }
   }
-  return {
-    ...checked,
-    findings: checked.findings.filter((_, index) => supported.has(index)),
-  };
+  return filterAnalysisFindings(checked, (_, index) => supported.has(index));
 }
 
 const reportLayoutSchema = z.object({
   summary: z.string().trim().min(1).max(1200),
-  overview: z.array(z.number().int().nonnegative()).min(1).max(12),
+  overview: z.array(z.number().int().nonnegative()).min(1).max(60),
   sections: z
     .array(
       z.object({
         heading: z.string().trim().min(1).max(80),
-        findingIndexes: z.array(z.number().int().nonnegative()).max(12),
+        findingIndexes: z.array(z.number().int().nonnegative()).max(60),
       }),
     )
-    .max(6),
+    .max(20),
 });
 
 export async function createReportLayout(
@@ -51,20 +51,40 @@ export async function createReportLayout(
   analysis: Analysis,
   signal?: AbortSignal,
 ): Promise<ReportLayout> {
-  const result = await structured(
-    'Write a research report introduction and organize the already-verified findings. Return {"summary":"A short, direct answer in fresh wording.","overview":[0,1],"sections":[{"heading":"Specific topic","findingIndexes":[0,1]}]}. summary must be one cohesive paragraph of 2–4 sentences that directly answers the question and synthesizes the main takeaways across ALL topic sections. Paraphrase and connect the findings in your own words; do not copy, concatenate, or lightly rearrange sentences from the findings or bullet sections. Preserve important qualifications and uncertainty, including material gaps. Do not introduce facts, causal claims, rankings, or recommendations unsupported by the supplied findings. No headings, bullets, or citation markers inside summary. overview must list the zero-based indexes of all findings supporting the summary, for citations. Group every finding into specific, descriptive sections with two to four related bullets where evidence permits. The sections only arrange finding indexes; do not rewrite findings or invent headings that assert unsupported conclusions. Avoid empty sections and duplicate indexes.',
-    {
-      question,
-      gaps: analysis.gaps,
-      findings: analysis.findings.map((finding, index) => ({
-        index,
-        claim: finding.claim,
-      })),
-    },
-    reportLayoutSchema,
-    signal,
-    1800,
-  );
+  const result = analysis.topics?.length
+    ? {
+        ...(await structured(
+          'Write a short, direct opening paragraph synthesizing the merged evidence across ALL topics. Return {"summary":"One cohesive paraphrased paragraph of 2–4 sentences.","overview":[0,1]}. Use fresh wording, preserve competing evidence and uncertainty, and introduce no new facts. overview lists supporting finding indexes. Do not copy sentences from findings. Topic headings and details are already arranged; only write the summary and supporting indexes.',
+          {
+            question,
+            findings: analysis.findings.map((finding, index) => ({
+              index,
+              claim: finding.claim,
+            })),
+            topics: analysis.topics,
+            disagreements: analysis.disagreements,
+            gaps: analysis.gaps.slice(0, 8),
+          },
+          reportLayoutSchema.pick({ summary: true, overview: true }),
+          signal,
+          1000,
+        )),
+        sections: analysis.topics,
+      }
+    : await structured(
+        'Write a research report introduction and organize the already-verified findings. Return {"summary":"A short, direct answer in fresh wording.","overview":[0,1],"sections":[{"heading":"Specific topic","findingIndexes":[0,1]}]}. summary must be one cohesive paragraph of 2–4 sentences that directly answers the question and synthesizes the main takeaways across ALL topic sections. Paraphrase and connect the findings in your own words; do not copy, concatenate, or lightly rearrange sentences from the findings or bullet sections. Preserve important qualifications and uncertainty, including material gaps. Do not introduce facts, causal claims, rankings, or recommendations unsupported by the supplied findings. No headings, bullets, or citation markers inside summary. overview must list the zero-based indexes of all findings supporting the summary, for citations. Group every finding into specific, descriptive sections with two to four related bullets where evidence permits. The sections only arrange finding indexes; do not rewrite findings or invent headings that assert unsupported conclusions. Avoid empty sections and duplicate indexes.',
+        {
+          question,
+          gaps: analysis.gaps.slice(0, 8),
+          findings: analysis.findings.map((finding, index) => ({
+            index,
+            claim: finding.claim,
+          })),
+        },
+        reportLayoutSchema,
+        signal,
+        1800,
+      );
 
   const validIndexes = new Set(analysis.findings.map((_, index) => index));
   const uniqueValid = (indexes: number[]) =>
@@ -109,7 +129,7 @@ export async function createReportLayout(
         index,
         claim: finding.claim,
       })),
-      gaps: analysis.gaps,
+      gaps: analysis.gaps.slice(0, 8),
     },
     z.object({ valid: z.boolean() }),
     signal,
@@ -168,11 +188,20 @@ export function renderReport(
     })
     .filter(Boolean)
     .join("\n\n");
+  const competing = (analysis.disagreements ?? [])
+    .map((disagreement) => {
+      const ids = disagreement.findingIndexes.flatMap(
+        (index) =>
+          analysis.findings[index]?.evidence.map((e) => e.sourceId) ?? [],
+      );
+      return `- ${disagreement.topic}: competing findings are retained in the topic sections above. ${citations(ids)}`;
+    })
+    .join("\n");
   const limitations = [...analysis.gaps];
   limitations.push(
     "Findings are based on retrieved source excerpts; sources may use different definitions, measures, or time periods.",
   );
-  return `# Question: ${question}\n\n${overview}\n\n${sections}\n\n## Limitations and open questions\n\n${limitations.map((g) => `- ${g}`).join("\n")}\n\n## Sources\n\n${sources
+  return `# Question: ${question}\n\n${overview}\n\n${sections}${competing ? `\n\n## Competing evidence\n\n${competing}` : ""}\n\n## Limitations and open questions\n\n${limitations.map((g) => `- ${g}`).join("\n")}\n\n## Sources\n\n${sources
     .filter((s) =>
       analysis.findings.some((f) =>
         f.evidence.some((e) => e.sourceId === s.id),

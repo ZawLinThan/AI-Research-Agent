@@ -28,7 +28,7 @@ export async function structured<T>(
   const model = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning";
   let tokenAllowance = completionTokens;
   let correction: ModelOutputError | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     signal?.throwIfAborted();
     try {
       const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
@@ -51,6 +51,9 @@ export async function structured<T>(
               ` JSON Schema: ${JSON.stringify(jsonSchema)}. Return raw JSON without markdown fences or commentary.` +
               (correction
                 ? ` The previous attempt was invalid or incomplete (${correction.kind}). Validation issues: ${JSON.stringify(correction.issues)}. Generate a new complete object, fixing these issues and checking every required field and allowed value against the schema before returning it. Do not invent evidence or source IDs.`
+                : "") +
+              (correction?.kind === "truncated"
+                ? " The previous response hit the output token limit. Use compact JSON with no indentation. Shorten explanatory text and use short exact supporting quotes. Preserve required fields, evidence, and material qualifications."
                 : ""),
           },
           { role: "user", content: JSON.stringify(input) },
@@ -96,13 +99,16 @@ export async function structured<T>(
         error instanceof ModelOutputError
           ? error
           : providerValidationError(error, schema);
-      validation.correctionAttempted = attempt === 1;
-      if (attempt === 1) throw validation;
+      validation.correctionAttempted = attempt > 0;
+      // Permit one extra recovery only when the correction itself was cut off.
+      // Ordinary schema/JSON errors still receive just one correction.
+      if (attempt === 2 || (attempt === 1 && validation.kind !== "truncated"))
+        throw validation;
       correction = validation;
       // A truncated response cannot be repaired with the same output allowance.
       // The scheduler still reserves the full request and enforces the TPM limit.
       if (validation.kind === "truncated")
-        tokenAllowance = completionTokens * 2;
+        tokenAllowance *= 2;
     }
   }
   throw new ModelOutputError(

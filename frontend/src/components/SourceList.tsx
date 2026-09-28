@@ -22,14 +22,6 @@ export const SourceList = ({ sources }: { sources: Source[] }) => {
               <ArrowUpRight size={14} />
             </a>
             <small>{new URL(s.url).hostname}</small>
-            {s.highlights
-              .map(readableEvidence)
-              .filter(Boolean)
-              .map((text, i) => (
-                <p className="source-excerpt" key={i}>
-                  {text}
-                </p>
-              ))}
           </article>
         ))
       )}

@@ -148,7 +148,7 @@ test("provider budgets and deadlines survive retries", async () => {
     /budget/,
   );
   f.record.checkpoint = {};
-  f.record.startedAt = new Date(Date.now() - 16 * 60_000);
+  f.record.startedAt = new Date(Date.now() - 31 * 60_000);
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /time budget/,

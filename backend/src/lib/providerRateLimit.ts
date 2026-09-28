@@ -139,7 +139,7 @@ export class ProviderScheduler {
         if (providerStatus(error) !== 429) throw error;
         const milliseconds = retryDelay(error);
         await this.gate.cooldown(milliseconds);
-        if (attempt >= 2) throw error;
+        if (attempt >= 10) throw error;
         console.info(
           JSON.stringify({
             event: "provider_rate_limited",

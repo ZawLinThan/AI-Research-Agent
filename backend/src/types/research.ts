@@ -1,3 +1,4 @@
+import type { EvidenceCheckpoint } from "../zodSchema/queryEvidence.schema.js";
 import type {
   Analysis,
   ResearchInput,
@@ -33,6 +34,7 @@ export type Checkpoint = {
   sources?: Source[];
   searchComplete?: boolean;
   analysis?: Analysis;
+  evidence?: EvidenceCheckpoint;
   followUpDone?: boolean;
   verified?: Analysis;
   reportLayout?: ReportLayout;

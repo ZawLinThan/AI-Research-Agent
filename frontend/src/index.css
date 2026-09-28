@@ -1258,3 +1258,37 @@ main {
 .page-heading h1 {
   font-weight: 550;
 }
+
+/* Readable workspace controls and a full-card question field. */
+.app-shell .nav-item, .app-shell .new-button { font-size: 14px; }
+.app-shell .help-button, .app-shell .page-heading p { font-size: 13px; }
+.app-shell .composer textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 22px 24px;
+  min-height: 140px;
+  font-size: 16px;
+}
+.app-shell .research-options select, .app-shell .composer .primary-button { font-size: 13px; }
+.account-menu { position: relative; }
+.account-menu .profile { cursor: pointer; font-size: 14px; list-style: none; }
+.account-menu .profile::-webkit-details-marker { display: none; }
+.account-menu .profile small { font-size: 12px; overflow-wrap: anywhere; }
+.profile-name { min-width: 0; overflow-wrap: anywhere; }
+.account-chevron { margin-left: auto; flex-shrink: 0; }
+.account-menu[open] .account-chevron { transform: rotate(180deg); }
+.profile-avatar { flex-shrink: 0; }
+.account-menu .profile:hover, .account-menu[open] .profile { background: #e9ede3; }
+.account-menu summary:focus-visible { outline: 2px solid #526d3e; outline-offset: -2px; }
+.account-actions {
+  position: absolute; bottom: calc(100% + 8px); left: 0; right: 0;
+  padding: 6px; border: 1px solid #dce3d4; border-radius: 10px;
+  background: white; box-shadow: 0 8px 24px #26351b20; z-index: 10;
+}
+.account-actions button {
+  display: block; width: 100%; padding: 12px; text-align: left;
+  border: 0; border-radius: 6px; background: transparent; font-size: 14px;
+}
+.account-actions button:hover, .account-actions button:focus-visible { background: #edf1e7; }

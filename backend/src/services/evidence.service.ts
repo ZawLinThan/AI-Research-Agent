@@ -18,9 +18,13 @@ export function canonicalUrl(value: string) {
   for (const key of [...u.searchParams.keys()])
     if (key.startsWith("utm_") || ["fbclid", "gclid"].includes(key))
       u.searchParams.delete(key);
+  u.searchParams.sort();
   return u.href;
 }
-export function selectSources(sources: Source[], limit = 10) {
+export function selectSources(
+  sources: Source[],
+  limit = Number.POSITIVE_INFINITY,
+) {
   const map = new Map<string, Source>();
   for (const s of sources) {
     let url: string;
@@ -38,29 +42,65 @@ export function selectSources(sources: Source[], limit = 10) {
       highlights: [
         ...new Set([...(previous?.highlights || []), ...s.highlights]),
       ]
-        .slice(0, 2)
-        .map((v) => v.slice(0, 900)),
+        .slice(0, 8)
+        .map((v) => v.slice(0, 1500)),
     });
   }
   return [...map.values()]
-    .filter((s) => s.highlights.some((h) => h.trim().length > 20))
     .sort((a, b) => b.queries.length - a.queries.length)
     .slice(0, limit);
 }
+export function filterAnalysisFindings(
+  analysis: Analysis,
+  keep: (finding: Analysis["findings"][number], index: number) => boolean,
+): Analysis {
+  const remap = new Map<number, number>();
+  const findings = analysis.findings.filter((finding, index) => {
+    if (!keep(finding, index)) return false;
+    remap.set(index, remap.size);
+    return true;
+  });
+  const indexes = (values: number[]) =>
+    values.flatMap((index) => (remap.has(index) ? [remap.get(index)!] : []));
+  return {
+    ...analysis,
+    findings,
+    ...(analysis.topics
+      ? {
+          topics: analysis.topics
+            .map((topic) => ({
+              ...topic,
+              findingIndexes: indexes(topic.findingIndexes),
+            }))
+            .filter((topic) => topic.findingIndexes.length),
+        }
+      : {}),
+    ...(analysis.disagreements
+      ? {
+          disagreements: analysis.disagreements
+            .map((disagreement) => ({
+              ...disagreement,
+              findingIndexes: indexes(disagreement.findingIndexes),
+            }))
+            .filter((disagreement) => disagreement.findingIndexes.length > 1),
+        }
+      : {}),
+  };
+}
+
 export function groundedFindings(
   analysis: Analysis,
   sources: Source[],
 ): Analysis {
   const map = new Map(sources.map((s) => [s.id, s]));
-
-  return {
-    ...analysis,
-    findings: analysis.findings.filter((f) =>
-      f.evidence.every((e) =>
+  return filterAnalysisFindings(
+    analysis,
+    (finding) =>
+      finding.evidence.length > 0 &&
+      finding.evidence.every((e) =>
         map.get(e.sourceId)?.highlights.some((h) => h.includes(e.quote)),
       ),
-    ),
-  };
+  );
 }
 
 export async function analyzeEvidence(

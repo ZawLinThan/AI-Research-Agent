@@ -42,6 +42,12 @@ export type PipelineDeps = {
     sources: Source[],
     signal: AbortSignal,
   ) => Promise<Analysis>;
+  analyzeQueries?: (
+    question: string,
+    state: Checkpoint,
+    signal: AbortSignal,
+    checkpoint: () => Promise<void>,
+  ) => Promise<Analysis>;
   verify: (
     question: string,
     analysis: Analysis,

@@ -135,3 +135,25 @@ test("search review deduplicates and limits follow-up queries without retrying",
     "company costs",
   ]);
 });
+
+test("search review accepts verbose explanations without a correction request", async (t) => {
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async () => {
+    calls++;
+    return response({
+      sufficient: false, relevanceScore: 0.5, coverageScore: 0.5,
+      sourceQualityScore: 0.5,
+      missingEvidence: Array.from({ length: 5 }, (_, i) => `${i}: ${"Missing comparable evidence. ".repeat(20)}`),
+      weakAreas: ["Limited coverage. ".repeat(30)],
+      reason: "More evidence is needed to resolve the disagreement. ".repeat(20),
+      followUpQueries: ["comparable evidence"],
+    });
+  });
+  const result = await reviewSearch("Compare companies", { queries: ["revenue"] }, {}, new AbortController().signal);
+  assert.equal(calls, 1);
+  assert.equal(result.missingEvidence.length, 3);
+  assert.ok(result.missingEvidence.every((text) => text.length <= 200));
+  assert.ok(result.weakAreas.every((text) => text.length <= 200));
+  assert.ok(result.reason.length <= 400);
+  assert.equal(result.sufficient, false);
+});

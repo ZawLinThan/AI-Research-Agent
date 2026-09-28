@@ -94,15 +94,13 @@ export const App = () => {
     <WorkspacePage
       key={session?.user.id || "guest"}
       userId={session?.user.id}
+      user={session?.user}
+      onSignOut={signOut}
+      onChangePassword={() => navigate("/reset-password")}
       onLogin={() => navigate("/login")}
       accountControls={
         <div className="workspace-auth">
-          {session ? (
-            <>
-              <span title={session.user.email}>{session.user.email}</span>
-              <button onClick={signOut}>Sign out</button>
-            </>
-          ) : (
+          {!session && (
             <>
               <button onClick={() => navigate("/login")}>Log in</button>
               <button
