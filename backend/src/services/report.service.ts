@@ -4,6 +4,7 @@ import type { Analysis, Source } from "../../../shared/research.js";
 import type { ReportLayout } from "../types/research.js";
 import { structured } from "../config/openRouterAI.js";
 import { groundedFindings } from "./evidence.service.js";
+import { evidenceInterpretationRules } from "../lib/evidenceRules.js";
 
 export async function verifyFindings(
   question: string,
@@ -12,13 +13,28 @@ export async function verifyFindings(
   signal?: AbortSignal,
 ) {
   const checked = groundedFindings(analysis, sources);
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
   const supported = new Set<number>();
   // Bound each verification request as findings become more detailed.
   for (let offset = 0; offset < checked.findings.length; offset += 4) {
     const batch = checked.findings.slice(offset, offset + 4);
     const verdict = await structured(
-      'Review claims against quoted evidence. Return {"supported":[0,1]} containing ONLY zero-based indices within this batch of claims fully supported by their quoted evidence. Reject misleading interpretations, unsupported comparisons, causal leaps and stale claims framed as current. Do not add claims.',
-      { question, findings: batch },
+      'Review claims against quoted evidence. Return {"supported":[0,1]} containing ONLY zero-based indices within this batch of claims fully supported by their quoted evidence. Reject misleading interpretations, unsupported comparisons, causal leaps and stale claims framed as current. Reject the whole claim if any part lacks support. Do not add claims. ' + evidenceInterpretationRules,
+      {
+        question,
+        currentDate: new Date().toISOString().slice(0, 10),
+        findings: batch.map((finding) => ({
+          ...finding,
+          evidence: finding.evidence.map((evidence) => {
+            const source = sourceById.get(evidence.sourceId)!;
+            return {
+              ...evidence,
+              sourceTitle: source.title.slice(0, 200),
+              sourceUrl: source.url,
+            };
+          }),
+        })),
+      },
       z.object({ supported: z.array(z.number().int().nonnegative()).max(4) }),
       signal,
       800,
@@ -30,6 +46,12 @@ export async function verifyFindings(
   return {
     ...checked,
     findings: checked.findings.filter((_, index) => supported.has(index)),
+    gaps: supported.size < checked.findings.length
+      ? [
+          "Some claims were omitted because their evidence did not establish the full interpretation or comparison.",
+          ...checked.gaps,
+        ].slice(0, 5)
+      : checked.gaps,
   };
 }
 

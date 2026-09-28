@@ -28,7 +28,7 @@ export async function structured<T>(
   const model = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning";
   let tokenAllowance = completionTokens;
   let correction: ModelOutputError | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     signal?.throwIfAborted();
     try {
       const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {

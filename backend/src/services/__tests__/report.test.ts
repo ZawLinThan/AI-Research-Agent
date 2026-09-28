@@ -83,6 +83,33 @@ test("verification batches preserve global finding indexes and reject out-of-ran
   );
 });
 
+test("verification receives table provenance and surfaces rejected comparisons as gaps", async (t) => {
+  const tableSource: Source = {
+    ...source,
+    title: "JPMorgan: THREE-YEAR SUMMARY OF CONSOLIDATED FINANCIAL HIGHLIGHTS",
+    url: "https://example.com/jpmorgan/annual-report-2024",
+    highlights: ["Market capitalization 670,618 489,320 393,484"],
+  };
+  const claim = {
+    claim: "JPMorgan, Bank of America and Wells Fargo had market capitalizations of 670,618, 489,320 and 393,484 million respectively.",
+    evidence: [{ sourceId: tableSource.id, quote: tableSource.highlights[0] }],
+  };
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    const input = JSON.parse(request.messages[1].content);
+    assert.equal(input.findings[0].evidence[0].sourceTitle, tableSource.title);
+    assert.equal(input.findings[0].evidence[0].sourceUrl, tableSource.url);
+    assert.equal(input.findings[0].evidence[0].quote, tableSource.highlights[0]);
+    assert.match(request.messages[0].content, /successive years for one entity/);
+    assert.match(request.messages[0].content, /subsidiaries from parent groups/);
+    return { choices: [{ message: { content: '{"supported":[]}' } }] };
+  });
+  const verified = await verifyFindings("JPM vs BOFA vs Wells Fargo", {
+    findings: [claim], gaps: [], followUpQueries: [],
+  }, [tableSource]);
+  assert.deepEqual(verified.findings, []);
+  assert.match(verified.gaps[0], /omitted/);
+});
+
 test("evidence display removes extraction syntax without losing readable facts", () => {
   const raw =
     "<|startoftext|>## **Revenue**\\n<p>Sales &amp; growth were &#x32;0%.</p> [Read more](https://example.com) `2026`";
