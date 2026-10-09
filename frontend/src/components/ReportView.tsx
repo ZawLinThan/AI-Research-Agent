@@ -46,12 +46,15 @@ export const ReportView = ({
         if (block.startsWith("## ")) return <h3 key={i}>{block.slice(3)}</h3>;
         if (block.startsWith("# ")) return <h2 key={i}>{block.slice(2)}</h2>;
         const lines = block.split("\n");
-        if (lines.every((line) => line.startsWith("- ")))
+        if (lines.every((line) => /^\s*- /.test(line)))
           return (
             <ul key={i}>
-              {lines.map((line, j) => (
-                <li key={j}>{inline(line.slice(2))}</li>
-              ))}
+              {lines.flatMap((line, j) => {
+                if (line.startsWith("  ")) return [];
+                const children = [];
+                for (let k = j + 1; k < lines.length && lines[k].startsWith("  "); k++) children.push(lines[k].trim().slice(2));
+                return [<li key={j}>{inline(line.slice(2))}{children.length > 0 && <ul>{children.map((child, k) => <li key={k}>{inline(child)}</li>)}</ul>}</li>];
+              })}
             </ul>
           );
         return <p key={i}>{inline(block)}</p>;

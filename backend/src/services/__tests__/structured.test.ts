@@ -12,6 +12,31 @@ function promptSchema(request: any) {
   return JSON.parse(match[1]);
 }
 
+test("truncation recovery fits the configured token window", async (t) => {
+  const { openRouterTokensPerMinute: limit } = await import("../../config/researchLimits.js");
+  const { configureProviderScheduler, ProviderScheduler } = await import("../../lib/providerRateLimit.js");
+  const reservations: number[] = [];
+  configureProviderScheduler("openrouter", new ProviderScheduler({
+    acquire: async (tokens) => {
+      assert.ok(tokens <= limit);
+      reservations.push(tokens);
+      return 0;
+    },
+    cooldown: async () => {},
+  }));
+  t.after(() => configureProviderScheduler("openrouter"));
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    assert.ok(request.max_tokens > 0);
+    assert.ok(Math.ceil(Buffer.byteLength(JSON.stringify(request)) / 3) + request.max_tokens <= limit);
+    if (++calls === 1) return { choices: [{ finish_reason: "length", message: { content: "{" } }] };
+    return { choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }] };
+  });
+  assert.deepEqual(await structured("Analyze", { text: "x".repeat(6000) }, z.object({ ok: z.boolean() }), undefined, 4000), { ok: true });
+  assert.equal(calls, 2);
+  assert.equal(reservations[1], limit);
+});
+
 test("structured requests use object instructions and validate the response", async (t) => {
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     assert.equal(client.baseURL, "https://openrouter.ai/api/v1");

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const evidence = z.object({
   sourceId: z.string().min(1),
-  quote: z.string().min(15).max(450),
+  quote: z.string().min(15).max(1200),
 });
 export const querySummarySchema = z.object({
   findings: z

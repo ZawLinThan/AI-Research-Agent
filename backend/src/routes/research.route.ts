@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createResearch,
+  approvePlan,
   getResearchStatus,
   listResearchProjects,
   cancelResearchProject,
@@ -12,4 +13,5 @@ router.get("/", listResearchProjects);
 router.post("/", createResearch);
 router.get("/:projectId", getResearchStatus);
 router.post("/:projectId/cancel", cancelResearchProject);
+router.post("/:projectId/approve", approvePlan);
 export default router;

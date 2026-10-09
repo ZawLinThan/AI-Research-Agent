@@ -202,3 +202,60 @@ limitations. The summary receives a separate support/paraphrase check and cites
 its supporting findings. Detailed bullets retain the verified claims. Resumed
 layouts missing a summary are regenerated; previously completed reports are not
 rewritten automatically. No database migration is needed for these JSON fields.
+
+### Worker lock recovery
+
+Research workers renew their BullMQ lease every 15 seconds. The lease defaults to
+120 seconds; `RESEARCH_LOCK_DURATION_MS` accepts 30000–600000 milliseconds. A longer
+lease tolerates temporary process/network pauses but delays recovery after a crash.
+Long asynchronous provider requests do not themselves require a longer lease.
+
+On `lockRenewalFailed`, the worker aborts provider work and leaves the job for
+BullMQ's stalled-job recovery, preserving its database checkpoint. It does not
+attempt to fail or delay a job it no longer owns. `research_lock_lost` logs include
+the maximum observed event-loop delay, Redis connection status, and job IDs;
+`research_job_stalled` records recovery. Redis `ready` is connection status, not
+proof that a particular job's lock still exists. Restart the worker after changing
+these settings. `node --import tsx backend/scripts/queue-resilience.ts` verifies
+lock-loss cancellation and recovery against an isolated temporary Redis server.
+
+### Highlights-only report workflow
+
+The worker now summarizes each approved query directly from all of its retrieved
+source highlights. The only model output for this step is `{ "summary": "..." }`.
+It does not run the legacy per-query findings, disagreement, context-fetching,
+or unanswered-question extraction workflow.
+
+Completed summaries are saved under `checkpoint.highlightReport.summaries` so
+retries skip successful queries. After all query summaries finish, a separate LLM
+call identifies gaps against the original question. Those gaps are checkpointed
+before report creation. The final LLM call synthesizes the overall answer and
+selects original highlight passages for cited support bullets. Query summaries
+are reused unchanged. Legacy retrieval checkpoints can resume into this workflow;
+legacy analysis output is not used by the new report path.
+
+## Evidence pipeline
+
+Apply `npm run db:migrate` before starting the updated API and worker. Migration
+0003 adds owner-protected `research_stages`, with independent brief, plan, review,
+search-result, evidence, report-claim and report records. The status API exposes
+these records to their owner and the progress panel allows inspection.
+
+New runs create a brief and typed queries, review with deterministic date/entity
+checks and at most one revision, then pause for editable plan approval. Edited
+plans are reviewed again. Quick runs allow four queries; deep runs allow six.
+Search tasks use a separate BullMQ queue with three workers and three attempts.
+Results retain query IDs and publication metadata; canonical URL selection merges
+query attribution. Evidence extraction copies exact quotes and structured
+entity/metric/period/value metadata. Synthesis references evidence IDs; semantic
+verification rejects unsupported interpretations before a validated report is
+rendered. Search review scores and coverage gaps accompany evidence synthesis.
+
+Comparison plans use one metric per query. Every comparison query includes every
+entity in the brief, with a shared period and definition (for example,
+`JPMorgan Chase Bank of America Wells Fargo 2025 net interest income`).
+The planner supplies a required single `metric` field for comparisons; code builds
+the query with the complete entity list. Deterministic checks reject missing
+entities in any query and common metric bundles, while semantic review checks
+other metric definitions. Approval and pre-search checks enforce the same rules.
+Overview requests retain their original shape.

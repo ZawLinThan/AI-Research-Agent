@@ -14,6 +14,6 @@ export const researchQueue = new Queue(RESEARCH_QUEUE, {
   },
 });
 
-export async function enqueueResearch(id: string) {
-  return researchQueue.add("run", { projectId: id }, { jobId: id });
+export async function enqueueResearch(id: string, approved = false) {
+  return researchQueue.add("run", { projectId: id }, { jobId: approved ? `${id}-approved` : id });
 }

@@ -35,3 +35,8 @@ export const researchWorkerConcurrency = z.coerce
   .positive()
   .default(1)
   .parse(process.env.RESEARCH_WORKER_CONCURRENCY);
+
+// Renew every 15 seconds; tolerate temporary pauses without holding abandoned
+// work for the entire research deadline. Longer leases delay crash recovery.
+export const researchLockDurationMs = z.coerce.number().int().min(30000).max(600000)
+  .default(120000).parse(process.env.RESEARCH_LOCK_DURATION_MS);

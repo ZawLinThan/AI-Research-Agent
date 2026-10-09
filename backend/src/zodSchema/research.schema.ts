@@ -11,10 +11,31 @@ export const requestSchema = z.object({
 
 export type ResearchInput = z.infer<typeof requestSchema>;
 
+export const researchBriefSchema = z.object({
+  originalQuestion: z.string(),
+  intent: z.string(),
+  entities: z.array(z.string()),
+  domain: z.string(),
+  answerShape: z.enum(["comparison", "overview", "causal", "timeline"]),
+  currentDate: z.string(),
+});
+export type ResearchBrief = z.infer<typeof researchBriefSchema>;
+export const plannedQuerySchema = z.object({
+  id: z.string(),
+  query: z.string().trim().min(3).max(300),
+  informationNeed: z.string().min(1),
+  entities: z.array(z.string()),
+  targetPeriod: z.string().optional(),
+  metric: z.string().trim().min(1).max(120).optional(),
+});
+export type PlannedQuery = z.infer<typeof plannedQuerySchema>;
+// Keep string queries for the existing plan editor and old checkpoints.
 export const planSchema = z.object({
   queries: z.array(z.string().trim().min(3).max(300)).min(1).max(6),
+  plannedQueries: z.array(plannedQuerySchema).max(6).optional(),
+  brief: researchBriefSchema.optional(),
+  reviews: z.array(z.unknown()).optional(),
 });
-
 export type ResearchPlan = z.infer<typeof planSchema>;
 
 export const planReviewSchema = z.object({

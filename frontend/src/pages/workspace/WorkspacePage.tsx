@@ -1,7 +1,7 @@
 import type { AuthSession } from "../../../../shared/auth";
 import type { ReactNode } from "react";
 import { HelpDialog } from "../../components/HelpDialog";
-import { Sidebar } from "../../components/Sidebar";
+import { Sidebar } from "../../components/SideBar";
 import { Topbar } from "../../components/Topbar";
 import { useResearchWorkspace } from "../../hooks/useResearchWorkspace";
 import "../../research.css";

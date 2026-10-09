@@ -43,7 +43,7 @@ function fixture() {
     question: "How do queues work?",
     depth: "Quick overview",
     scope: "Web",
-    checkpoint: {},
+    checkpoint: { planApproved: true },
     startedAt: new Date(),
   };
   const states: string[] = [];
@@ -148,7 +148,7 @@ test("provider budgets and deadlines survive retries", async () => {
     /budget/,
   );
   f.record.checkpoint = {};
-  f.record.startedAt = new Date(Date.now() - 31 * 60_000);
+  f.record.startedAt = new Date(Date.now() - 61 * 60_000);
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /time budget/,
@@ -249,63 +249,27 @@ test("nested calls cannot bypass the remaining budget on a retried run", async (
   assert.equal(f.record.checkpoint.calls, maxProviderCalls);
 });
 
-test("review queries reach the persisted plan before dispatch and survive retries", async () => {
-  const { searchForSources } =
-    await import("../../pipeline/search.pipeline.js");
+test("planning pauses and retries never search before approval", async () => {
   const f = fixture();
-  let failFollowUp = true;
-  const searched: string[] = [];
-  f.deps.search = (searches, question, plan, scope, signal, checkpoint) =>
-    searchForSources(searches, question, plan, scope, signal, checkpoint, {
-      search: async (query) => {
-        searched.push(query);
-        if (query === "follow up") {
-          assert.ok(f.record.checkpoint.plan?.queries.includes(query));
-          if (failFollowUp) throw new Error("temporary search failure");
-        }
-        return [source];
-      },
-      review: async () => ({
-        sufficient: false,
-        relevanceScore: 1,
-        coverageScore: 0.5,
-        sourceQualityScore: 1,
-        missingEvidence: [],
-        weakAreas: [],
-        followUpQueries: ["follow up", "follow up"],
-        reason: "Need more evidence",
-      }),
-    });
-  await assert.rejects(
-    runPipeline(f.record, f.deps, new AbortController().signal),
-    /temporary search failure/,
-  );
-  assert.deepEqual(f.record.checkpoint.plan?.queries, [
-    "q1",
-    "q2",
-    "follow up",
-  ]);
-  failFollowUp = false;
+  f.record.checkpoint = {};
   await runPipeline(f.record, f.deps, new AbortController().signal);
-  assert.deepEqual(searched, ["q1", "q2", "follow up", "follow up"]);
-  assert.deepEqual(f.record.checkpoint.plan?.queries, [
-    "q1",
-    "q2",
-    "follow up",
-  ]);
+  assert.equal(f.states.at(-1), "awaiting_approval");
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.deepEqual(f.searchCalls, []);
+  f.record.checkpoint = { plan: { queries: ["edited query"] }, planApproved: true };
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.deepEqual(f.searchCalls, ["edited query"]);
   assert.equal(f.states.at(-1), "completed");
 });
 
-test("resuming old checkpoints adds cached review queries to the saved plan", async () => {
-  const f = fixture();
-  f.record.checkpoint = {
-    plan: { queries: ["q1"] },
-    searches: { q1: [source], "old follow up": [source] },
-    searchComplete: true,
-  };
-  await runPipeline(f.record, f.deps, new AbortController().signal);
-  assert.deepEqual(f.record.checkpoint.plan?.queries, ["q1", "old follow up"]);
-  assert.equal(f.searchCalls.length, 0);
+test("search executes only approved queries without automatic follow-ups", async () => {
+  const { searchForSources } = await import("../../pipeline/search.pipeline.js");
+  const searched: string[] = [];
+  await searchForSources({}, "question", { queries: ["approved"] }, "Web", new AbortController().signal, async () => {}, {
+    search: async query => { searched.push(query); return [source]; },
+    review: async () => { throw new Error("Must not generate unapproved queries"); },
+  });
+  assert.deepEqual(searched, ["approved"]);
 });
 
 test("resumed layouts without a summary are regenerated and checkpointed", async () => {
@@ -329,4 +293,17 @@ test("resumed layouts without a summary are regenerated and checkpointed", async
     f.record.checkpoint.reportLayout?.summary,
     "Queue processing relies on Redis-backed state.",
   );
+});
+
+test("an omitted unsupported summary is checkpointed and not regenerated on resume", async () => {
+  const f = fixture();
+  let presentations = 0;
+  f.deps.present = async () => {
+    presentations++;
+    return { summaryOmitted: true, overview: [0], sections: [{ heading: "Supported findings", findingIndexes: [0] }], limitations: ["A complete answer could not be validated."] };
+  };
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.reportLayout?.summaryOmitted, true);
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(presentations, 1);
 });

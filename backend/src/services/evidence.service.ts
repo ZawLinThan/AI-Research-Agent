@@ -21,13 +21,16 @@ export function canonicalUrl(value: string) {
   u.searchParams.sort();
   return u.href;
 }
+
 export function selectSources(
   sources: Source[],
   limit = Number.POSITIVE_INFINITY,
 ) {
   const map = new Map<string, Source>();
+  
   for (const s of sources) {
     let url: string;
+
     try {
       url = canonicalUrl(s.url);
     } catch {
@@ -38,6 +41,7 @@ export function selectSources(
       ...s,
       id: sourceId(url),
       url,
+      queryIds: [...new Set([...(previous?.queryIds || []), ...(s.queryIds || [])])],
       queries: [...new Set([...(previous?.queries || []), ...s.queries])],
       highlights: [
         ...new Set([...(previous?.highlights || []), ...s.highlights]),
@@ -50,6 +54,7 @@ export function selectSources(
     .sort((a, b) => b.queries.length - a.queries.length)
     .slice(0, limit);
 }
+
 export function filterAnalysisFindings(
   analysis: Analysis,
   keep: (finding: Analysis["findings"][number], index: number) => boolean,

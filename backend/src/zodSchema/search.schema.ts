@@ -5,6 +5,7 @@ export const sourcesSchema = z.object({
     z.object({
       url: z.string().url(),
       title: z.string().nullish(),
+      publishedDate: z.string().nullish(),
       highlights: z.array(z.string()).optional(),
     }),
   ),

@@ -30,7 +30,7 @@ export const search = async (
       {
         query: querySchema.parse(query),
         type: "auto",
-        numResults: 10,
+        numResults: 5,
         contents: { highlights: true },
         ...(scope === "Academic"
           ? {
@@ -71,6 +71,8 @@ export const search = async (
     id: r.url,
     url: r.url,
     title: r.title || r.url,
+    publishedAt: r.publishedDate ?? undefined,
+    sourceDomain: new URL(r.url).hostname,
     highlights: r.highlights || [],
     queries: [query],
     retrievedAt: new Date().toISOString(),
