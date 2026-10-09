@@ -2,12 +2,13 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   createResearchProject,
+  approveResearchPlan,
   listResearch,
   getResearch,
   cancelResearch,
 } from "../services/research.service.js";
 import { enqueueResearch } from "../queues/research.queue.js";
-import { requestSchema } from "../zodSchema/research.schema.js";
+import { requestSchema, planSchema } from "../zodSchema/research.schema.js";
 
 export async function createResearch(req: Request, res: Response) {
   const input = requestSchema.parse(req.body);
@@ -16,8 +17,8 @@ export async function createResearch(req: Request, res: Response) {
 
   let queued = true;
   try {
-    if (!["completed", "failed", "cancelled"].includes(project.status))
-      await enqueueResearch(project.id);
+    if (!["completed", "failed", "cancelled", "awaiting_approval"].includes(project.status))
+      await enqueueResearch(project.id, project.checkpoint.planApproved);
   } catch {
     queued = false;
   }
@@ -44,4 +45,14 @@ export async function cancelResearchProject(req: Request, res: Response) {
       res.locals.ownerId,
     ),
   );
+}
+
+export async function approvePlan(req: Request, res: Response) {
+  const id = z.string().uuid().parse(req.params.projectId);
+  const plan = planSchema.parse(req.body);
+  plan.queries = [...new Set(plan.queries)];
+  const project = await approveResearchPlan(id, res.locals.ownerId, plan);
+  let queued = true;
+  try { await enqueueResearch(id, true); } catch { queued = false; }
+  res.status(202).json({ ...project, queued });
 }

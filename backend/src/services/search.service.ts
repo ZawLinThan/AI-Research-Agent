@@ -14,7 +14,7 @@ import { QuerySearchSummary } from "../types/search.js";
 
 import { scheduleProviderRequest } from "../lib/providerRateLimit.js";
 import { beforeProviderCall } from "../lib/providerCalls.js";
-import { exaClient } from "../config/exa.js";
+import { exaClient, requireExaKey } from "../config/exa.js";
 
 const querySchema = z.string().trim().min(1).max(5000);
 
@@ -30,7 +30,7 @@ export const search = async (
       {
         query: querySchema.parse(query),
         type: "auto",
-        numResults: 10,
+        numResults: 5,
         contents: { highlights: true },
         ...(scope === "Academic"
           ? {
@@ -48,7 +48,7 @@ export const search = async (
       },
       {
         headers: {
-          "x-api-key": process.env.EXA_API_KEY,
+          "x-api-key": requireExaKey(),
         },
         signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]),
       },
@@ -71,6 +71,8 @@ export const search = async (
     id: r.url,
     url: r.url,
     title: r.title || r.url,
+    publishedAt: r.publishedDate ?? undefined,
+    sourceDomain: new URL(r.url).hostname,
     highlights: r.highlights || [],
     queries: [query],
     retrievedAt: new Date().toISOString(),
@@ -256,6 +258,7 @@ export const reviewSearch = async (
 };
 
 export const searchWeb = async (query: string, numResults = 5) => {
+  requireExaKey();
   const checked = querySchema.parse(query);
   const count = z.number().int().min(1).max(10).parse(numResults);
   return exaClient.search(checked, {
@@ -266,6 +269,7 @@ export const searchWeb = async (query: string, numResults = 5) => {
 };
 
 export const extractWeb = async (urls: string[]) => {
+  requireExaKey();
   const checked = z
     .array(
       z

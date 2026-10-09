@@ -61,7 +61,88 @@ export function normalizeEvidenceSelection(
   };
 }
 
+function prose(text: unknown, limit: number): unknown {
+    if (typeof text !== "string") return text;
+    const trimmed = text.trim();
+    if (trimmed.length <= limit) return trimmed;
+    const prefix = trimmed.slice(0, limit - 1);
+    const boundary = prefix.lastIndexOf(" ");
+    return `${prefix.slice(0, boundary > limit / 2 ? boundary : prefix.length)}…`;
+}
+
+// Unanswered questions are advisory metadata, not claims or evidence. Preserve
+// labels on unfamiliar fields so their meaning is not lost when flattening.
+function questionText(value: unknown, depth = 0): unknown {
+  const known = gapText(value);
+  if (typeof known === "string") return known;
+  if (depth >= 3) return value;
+  if (Array.isArray(value) && value.length) {
+    const parts = value.map(item => questionText(item, depth + 1));
+    if (parts.every(part => typeof part === "string" && part.trim()))
+      return parts.join("; ");
+  }
+  if (isObject(value)) {
+    const entries = Object.entries(value);
+    const parts = entries.map(([key, item]) => [key, questionText(item, depth + 1)] as const);
+    if (parts.length && parts.every(([key, text]) => key.trim() && typeof text === "string" && text.trim()))
+      return parts.map(([key, text]) => `${key}: ${text}`).join("; ");
+  }
+  return value;
+}
+
+export function normalizeQuerySummary(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  // Normalize descriptive metadata only; never shorten claims or quotations.
+  const questions = Array.isArray(value.unansweredQuestions)
+    ? value.unansweredQuestions.map((item) => prose(questionText(item), 200))
+    : value.unansweredQuestions;
+  const requests = Array.isArray(value.needsContext)
+    ? value.needsContext.map((item) => isObject(item)
+      ? { ...item, reason: prose(item.reason, 200) }
+      : item)
+    : value.needsContext;
+  // Keep every context request: silently dropping one could promote a claim
+  // whose required context was never fetched. Excess requests still retry.
+  return {
+    ...value,
+    unansweredQuestions: questions,
+    needsContext: requests,
+    disagreements: Array.isArray(value.disagreements)
+      ? value.disagreements.map((item) => isObject(item)
+        ? { ...item, topic: prose(item.topic, 100) }
+        : item)
+      : value.disagreements,
+  };
+}
+
 export function normalizeSearchReview(value: unknown): unknown {
   if (!isObject(value)) return value;
-  return { ...value, followUpQueries: textList(value.followUpQueries, 2) };
+  const explanations = (items: unknown) => {
+    const list = textList(items, 3);
+    return Array.isArray(list) ? list.map((item) => prose(item, 200)) : list;
+  };
+  return {
+    ...value,
+    missingEvidence: explanations(value.missingEvidence),
+    weakAreas: explanations(value.weakAreas),
+    reason: prose(value.reason, 400),
+    followUpQueries: textList(value.followUpQueries, 2),
+  };
+}
+
+export function normalizePlanReview(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  const feedback = (items: unknown) => {
+    // Only bound well-formed advisory text. Malformed entries, validity and
+    // scores must still fail schema validation rather than being coerced.
+    if (!Array.isArray(items) || !items.every(item => typeof item === "string"))
+      return items;
+    return (textList(items, 3) as string[]).map(item => prose(item, 200));
+  };
+  return {
+    ...value,
+    issues: feedback(value.issues),
+    missingAngles: feedback(value.missingAngles),
+    revisionInstructions: feedback(value.revisionInstructions),
+  };
 }

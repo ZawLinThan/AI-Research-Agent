@@ -29,8 +29,8 @@ shown in AUTH.md. The API and worker are separate long-running processes.
 ## Flow and persistence
 
 The cookie-authenticated API resolves an opaque HttpOnly session ID through Redis, creates an owned project and returns 202, then BullMQ runs
-planning and plan review → search and optional follow-up review → evidence analysis → claim verification
-→ report. Reports are assembled from verified claims, so no uncited summary is
+planning and plan review → search and optional follow-up review → source deduplication
+→ per-query summaries → topic merge → claim verification → report. Reports are assembled from verified claims, so no uncited summary is
 introduced after verification. Source IDs link claims to stored excerpts. This
 is evidence review, not a guarantee that sources or model judgments are true.
 
@@ -38,14 +38,21 @@ The worker persists checkpoints before provider calls and after completed stages
 Retry resumes completed stages. One job executes per worker by default; searches
 within a run execute sequentially. Quick overview uses at most three initial
 queries; deep research uses six. Search review can request up to two additional rounds
-of at most two queries each. Ten results per query are deduplicated into at most ten sources.
+of at most two queries each. Each query returns up to ten results; there is no ten-source cap on the final run.
+Canonical URLs, near-identical excerpts, and a conservative model similarity pass
+deduplicate results across queries. Related topics and competing evidence stay separate.
 Review input shares a 10,000-character summary budget across queries, including
 follow-ups. Invalid model structures receive one correction attempt with required
 fields explicitly listed; every nested request and correction counts against the
-provider-call budget. Successful searches are checkpointed before review. Context is capped at two
-900-character excerpts per source. A run allows at most 40 provider calls
-across attempts and eight minutes from first execution. OpenRouter requests time out
-at 60 seconds and search at 45 seconds. Transient failures retry up to three total
+provider-call budget. Successful searches, deduplication aliases, per-query summaries,
+and requested source bodies are checkpointed. Each query is summarized independently
+using all of its remaining results, a shared 6,500-byte excerpt/context budget, and
+exact source-ID/quote pairs. Up to four findings, disagreements, unanswered questions,
+and context requests are returned per query. Source bodies are fetched through Exa
+`/contents` only when requested, capped at 50,000 characters, and relevant contiguous
+passages are supplied for a revised summary. Unresolved context remains a limitation.
+A run allows at most 140 provider calls across attempts and 30 minutes from first execution. OpenRouter requests time out
+at 60 seconds and search at 45 seconds. Transient failures retry up to ten total
 attempts with provider-aware exponential backoff. Invalid credentials/requests and insufficient
 evidence fail without repeated attempts. Small account/provider limits can still
 cause failures; the UI reports this and preserves collected sources.
@@ -103,14 +110,14 @@ plan migration of existing data before recreating that service.
 
 ### Provider-call budget
 
-`RESEARCH_MAX_PROVIDER_CALLS` defaults to 40 and must be a positive integer.
-Deep research can use 22 calls (including two planner revisions, two search
-follow-up rounds, and report layout), or 34 with one correction for every model call. The remaining
-six calls allow limited transient retries. The counter persists across queue
-attempts; it is never reset to bypass the cap. The fifteen-minute deadline still
-applies independently. Provider token/rate limits are separate from this limit.
-Restart the worker after changing the environment. Already failed runs require
-a new submission.
+`RESEARCH_MAX_PROVIDER_CALLS` defaults to 140 and must be a positive integer.
+The expanded flow includes a semantic deduplication pass, one summary per initial
+or follow-up query, optional full-source requests and revised summaries, a topic
+merge, batched verification, and a paraphrased opening summary. Every actual request,
+correction, and retry counts; completed query summaries and source bodies are reused
+on retries. The shared 30-minute deadline applies independently. Provider token/rate
+limits remain separate and are not increased. Restart the worker after configuration
+changes. Already failed runs require a new submission.
 
 ### Provider rate limiting
 
@@ -128,7 +135,7 @@ up to twice. `Retry-After` (seconds or date) takes priority, followed by a provi
 run budget; waiting does not add extra calls. Persistent throttling goes to the
 queue, whose new `provider` backoff never waits less than the provider hint.
 Existing queued jobs retain their old backoff, but shared admission still blocks
-requests during cooldown. Cancellation and the fifteen-minute deadline interrupt
+requests during cooldown. Cancellation and the 30-minute deadline interrupt
 waits. Longer quota exhaustion can still fail a run; limits are not bypassed.
 
 `RESEARCH_WORKER_CONCURRENCY` defaults to 1 so one local run does not spend its
@@ -138,10 +145,9 @@ The scheduler is registered by the worker; standalone provider smoke scripts do
 not register it. Model tests use fake providers; Redis concurrency tests use an
 isolated temporary instance.
 
-Small plan/review responses reserve 1400 completion tokens, claim verification
-reserves 800, and evidence analysis retains 2500. Analysis uses one excerpt of up
-to 450 characters per selected source while full retrieved highlights remain stored.
-This trades some evidence context for fitting the configured provider allowance.
+Small plan/review responses reserve 1400 completion tokens, per-query summaries 1800,
+claim verification 800, and the merge 1200. UTF-8 byte budgets keep non-English source
+excerpts within the same scheduler estimates without changing quoted substrings.
 
 See https://openrouter.ai/docs/api/reference/limits for response-header semantics and
 check your own account limits in the OpenRouter dashboard. Logs include the provider and
@@ -152,18 +158,22 @@ retry delay; the user sees a rate-limit-specific message when retries are exhaus
 
 New reports open with the question and a short, direct-answer paragraph, followed
 by topic headings with supporting bullets, limitations and open questions, and
-sources. Extraction aims for 8–12 grounded findings across two batches when enough
-evidence is available, with claims up to 600 characters and excerpts up to 900
-characters. Each batch shares a 6,500-character excerpt budget. Smaller evidence
-sets produce fewer findings; unsupported details are not added to fill sections.
-Verification runs in batches of four findings. Each provider request and correction
-still counts against the existing run budget.
+sources. Six initial queries produce six summaries; review queries are summarized too.
+The merge groups all findings by topic and collapses equivalent claims while retaining
+original source IDs and quotations. Opposing evidence is kept as separate findings and
+marked as competing evidence. Findings omitted by model grouping are retained. Quotes
+are validated against supplied source text before saving; final claim verification runs
+in batches of four. Source excerpts from targeted full-text retrieval are saved alongside
+source records so citation verification survives retries.
 
 The frontend uses site logos for citations, with a globe fallback, and shows source
-names and domains rather than internal IDs. Evidence display removes HTML, Markdown,
-escaped whitespace, and extraction markers. Original excerpts remain unchanged for
-citation verification. Stored reports retain their existing structure; new runs use
-the updated format.
+names and domains rather than internal IDs. Sources & evidence displays one link per
+retained source, without repeating excerpt descriptions below every source. New runs
+use the per-query flow; unfinished legacy runs upgrade when they resume. Completed
+reports are not rewritten automatically. The existing JSON checkpoint stores summaries,
+aliases, and retrieved source bodies; no database migration is required.
+
+Exa full-text request fields follow the [official contents API guidance](https://github.com/exa-labs/agent-skills/blob/main/skills/exa-contents/SKILL.md).
 
 ### Worker log files
 
@@ -192,3 +202,60 @@ limitations. The summary receives a separate support/paraphrase check and cites
 its supporting findings. Detailed bullets retain the verified claims. Resumed
 layouts missing a summary are regenerated; previously completed reports are not
 rewritten automatically. No database migration is needed for these JSON fields.
+
+### Worker lock recovery
+
+Research workers renew their BullMQ lease every 15 seconds. The lease defaults to
+120 seconds; `RESEARCH_LOCK_DURATION_MS` accepts 30000–600000 milliseconds. A longer
+lease tolerates temporary process/network pauses but delays recovery after a crash.
+Long asynchronous provider requests do not themselves require a longer lease.
+
+On `lockRenewalFailed`, the worker aborts provider work and leaves the job for
+BullMQ's stalled-job recovery, preserving its database checkpoint. It does not
+attempt to fail or delay a job it no longer owns. `research_lock_lost` logs include
+the maximum observed event-loop delay, Redis connection status, and job IDs;
+`research_job_stalled` records recovery. Redis `ready` is connection status, not
+proof that a particular job's lock still exists. Restart the worker after changing
+these settings. `node --import tsx backend/scripts/queue-resilience.ts` verifies
+lock-loss cancellation and recovery against an isolated temporary Redis server.
+
+### Highlights-only report workflow
+
+The worker now summarizes each approved query directly from all of its retrieved
+source highlights. The only model output for this step is `{ "summary": "..." }`.
+It does not run the legacy per-query findings, disagreement, context-fetching,
+or unanswered-question extraction workflow.
+
+Completed summaries are saved under `checkpoint.highlightReport.summaries` so
+retries skip successful queries. After all query summaries finish, a separate LLM
+call identifies gaps against the original question. Those gaps are checkpointed
+before report creation. The final LLM call synthesizes the overall answer and
+selects original highlight passages for cited support bullets. Query summaries
+are reused unchanged. Legacy retrieval checkpoints can resume into this workflow;
+legacy analysis output is not used by the new report path.
+
+## Evidence pipeline
+
+Apply `npm run db:migrate` before starting the updated API and worker. Migration
+0003 adds owner-protected `research_stages`, with independent brief, plan, review,
+search-result, evidence, report-claim and report records. The status API exposes
+these records to their owner and the progress panel allows inspection.
+
+New runs create a brief and typed queries, review with deterministic date/entity
+checks and at most one revision, then pause for editable plan approval. Edited
+plans are reviewed again. Quick runs allow four queries; deep runs allow six.
+Search tasks use a separate BullMQ queue with three workers and three attempts.
+Results retain query IDs and publication metadata; canonical URL selection merges
+query attribution. Evidence extraction copies exact quotes and structured
+entity/metric/period/value metadata. Synthesis references evidence IDs; semantic
+verification rejects unsupported interpretations before a validated report is
+rendered. Search review scores and coverage gaps accompany evidence synthesis.
+
+Comparison plans use one metric per query. Every comparison query includes every
+entity in the brief, with a shared period and definition (for example,
+`JPMorgan Chase Bank of America Wells Fargo 2025 net interest income`).
+The planner supplies a required single `metric` field for comparisons; code builds
+the query with the complete entity list. Deterministic checks reject missing
+entities in any query and common metric bundles, while semantic review checks
+other metric definitions. Approval and pre-search checks enforce the same rules.
+Overview requests retain their original shape.

@@ -1,14 +1,16 @@
 import "dotenv/config";
 import { z } from "zod";
 
-// Deep research: 6 planner calls + 10 searches + 3 search reviews + analysis +
-// verification + report layout = 22 calls. One correction per model call raises
-// this to 34. The default leaves 6 calls for transient failures across attempts.
+// Multiple query summaries, context retrieval, semantic deduplication, merging,
+// and verification each reserve actual provider calls, including corrections.
+export const researchTimeBudgetMs = 60 * 60_000;
+export const researchTimeBudgetMessage =
+  "Research exceeded its sixty-minute time budget.";
 export const maxProviderCalls = z.coerce
   .number()
   .int()
   .positive()
-  .default(40)
+  .default(140)
   .parse(process.env.RESEARCH_MAX_PROVIDER_CALLS);
 
 // Set these to the limits for the OpenRouter organization/model used by this deployment.
@@ -33,3 +35,8 @@ export const researchWorkerConcurrency = z.coerce
   .positive()
   .default(1)
   .parse(process.env.RESEARCH_WORKER_CONCURRENCY);
+
+// Renew every 15 seconds; tolerate temporary pauses without holding abandoned
+// work for the entire research deadline. Longer leases delay crash recovery.
+export const researchLockDurationMs = z.coerce.number().int().min(30000).max(600000)
+  .default(120000).parse(process.env.RESEARCH_LOCK_DURATION_MS);

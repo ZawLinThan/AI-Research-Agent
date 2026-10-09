@@ -1,19 +1,25 @@
+import type { AuthSession } from "../../../../shared/auth";
 import type { ReactNode } from "react";
 import { HelpDialog } from "../../components/HelpDialog";
-import { Sidebar } from "../../components/Sidebar";
+import { Sidebar } from "../../components/SideBar";
 import { Topbar } from "../../components/Topbar";
 import { useResearchWorkspace } from "../../hooks/useResearchWorkspace";
 import "../../research.css";
 import { HistoryPage } from "../history/HistoryPage";
 import { HomePage } from "../home/HomePage";
 import { ResearchPage } from "../research/ResearchPage";
-import { SourcesPage } from "../sources/SourcesPage";
 import { TemplatesPage } from "../templates/TemplatesPage";
 export const WorkspacePage = ({
   accountControls,
+  user,
+  onSignOut,
+  onChangePassword,
   ...props
 }: {
   accountControls?: ReactNode;
+  user?: AuthSession["user"];
+  onSignOut: () => void;
+  onChangePassword: () => void;
   userId?: string;
   onLogin: () => void;
 }) => {
@@ -26,7 +32,6 @@ export const WorkspacePage = ({
     navigate,
     newResearch,
     setHelp,
-    userId,
     selectedId,
     error,
     setReload,
@@ -36,9 +41,7 @@ export const WorkspacePage = ({
     ? ResearchPage
     : page === "Templates"
       ? TemplatesPage
-      : page === "Source library"
-        ? SourcesPage
-        : page === "My research"
+      : page === "My research"
           ? HistoryPage
           : HomePage;
   return (
@@ -57,7 +60,10 @@ export const WorkspacePage = ({
         navigate={navigate}
         newResearch={newResearch}
         onHelp={() => setHelp(true)}
-        signedIn={!!userId}
+        user={user}
+        onSignOut={onSignOut}
+        onChangePassword={onChangePassword}
+        onLogin={props.onLogin}
       />
       <div className="main-shell">
         <Topbar

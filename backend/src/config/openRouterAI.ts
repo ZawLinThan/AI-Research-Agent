@@ -7,6 +7,7 @@ import {
   tagProviderError,
 } from "../lib/providerRateLimit.js";
 import { ModelOutputError } from "../lib/errors.js";
+import { openRouterTokensPerMinute } from "./researchLimits.js";
 
 export const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -28,7 +29,7 @@ export async function structured<T>(
   const model = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning";
   let tokenAllowance = completionTokens;
   let correction: ModelOutputError | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     signal?.throwIfAborted();
     try {
       const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
@@ -51,6 +52,9 @@ export async function structured<T>(
               ` JSON Schema: ${JSON.stringify(jsonSchema)}. Return raw JSON without markdown fences or commentary.` +
               (correction
                 ? ` The previous attempt was invalid or incomplete (${correction.kind}). Validation issues: ${JSON.stringify(correction.issues)}. Generate a new complete object, fixing these issues and checking every required field and allowed value against the schema before returning it. Do not invent evidence or source IDs.`
+                : "") +
+              (correction?.kind === "truncated"
+                ? " The previous response hit the output token limit. Use compact JSON with no indentation. Shorten explanatory text and use short exact supporting quotes. Preserve required fields, evidence, and material qualifications."
                 : ""),
           },
           { role: "user", content: JSON.stringify(input) },
@@ -58,9 +62,13 @@ export async function structured<T>(
       };
 
       // Include schema and completion allowance; deliberately overestimate English input.
-      const estimatedTokens =
-        Math.ceil(Buffer.byteLength(JSON.stringify(request), "utf8") / 3) +
-        tokenAllowance;
+      const promptTokens = Math.ceil(
+        Buffer.byteLength(JSON.stringify(request), "utf8") / 3,
+      );
+      const remainingTokens = openRouterTokensPerMinute - promptTokens;
+      if (remainingTokens > 0)
+        request.max_tokens = Math.min(tokenAllowance, remainingTokens);
+      const estimatedTokens = promptTokens + request.max_tokens!;
 
       const response = await scheduleProviderRequest(
         "openrouter",
@@ -92,17 +100,36 @@ export async function structured<T>(
         code !== "json_validate_failed"
       )
         throw error;
+      // Providers may reject otherwise usable output for an array-count limit.
+      // Apply the same task-specific normalization as successful responses.
+      if (code === "json_validate_failed" && normalizeOutput) {
+        const failure = error as {
+          failed_generation?: unknown;
+          error?: { failed_generation?: unknown };
+        };
+        const generated =
+          failure.error?.failed_generation ?? failure.failed_generation;
+        if (typeof generated === "string") {
+          try {
+            return parseModelOutput(generated, schema, normalizeOutput);
+          } catch {
+            // Invalid factual text or structure still follows bounded correction.
+          }
+        }
+      }
       const validation =
         error instanceof ModelOutputError
           ? error
           : providerValidationError(error, schema);
-      validation.correctionAttempted = attempt === 1;
-      if (attempt === 1) throw validation;
+      validation.correctionAttempted = attempt > 0;
+      // Permit one extra recovery only when the correction itself was cut off.
+      // Ordinary schema/JSON errors still receive just one correction.
+      if (attempt === 2 || (attempt === 1 && validation.kind !== "truncated"))
+        throw validation;
       correction = validation;
       // A truncated response cannot be repaired with the same output allowance.
       // The scheduler still reserves the full request and enforces the TPM limit.
-      if (validation.kind === "truncated")
-        tokenAllowance = completionTokens * 2;
+      if (validation.kind === "truncated") tokenAllowance *= 2;
     }
   }
   throw new ModelOutputError(

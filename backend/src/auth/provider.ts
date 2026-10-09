@@ -13,6 +13,14 @@ export class AuthError extends Error {
 const userSchema = z.object({
   id: z.string().uuid(),
   email: z.string().optional(),
+  user_metadata: z.unknown().optional(),
+}).transform(({ id, email, user_metadata }) => {
+  const metadata = user_metadata as Record<string, unknown> | null;
+  const name = metadata && typeof metadata === "object"
+    ? metadata.full_name ?? metadata.name
+    : undefined;
+  const fullName = typeof name === "string" ? name.trim().slice(0, 200) : "";
+  return { id, email, ...(fullName ? { fullName } : {}) };
 });
 
 const tokensSchema = z.object({

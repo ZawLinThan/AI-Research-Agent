@@ -1,3 +1,9 @@
+import { extractEvidenceRecords, synthesizeEvidence } from "../services/evidenceReport.service.js";
+import { reviewSearch } from "../services/search.service.js";
+import { queuedSearch, closeSearchQueue } from "../queues/search.queue.js";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { cancelLostLocks, deferLostLock } from "../lib/workerLock.js";
+import { summarizeHighlights, findSummaryGaps, composeHighlightReport } from "../services/highlightReport.service.js";
 import "../lib/workerLoggingBootstrap.js";
 import { workerLogging } from "../lib/workerLogging.js";
 import {
@@ -10,6 +16,9 @@ import {
   openRouterTokensPerMinute,
   openRouterRequestsPerMinute,
   researchWorkerConcurrency,
+  researchLockDurationMs,
+  researchTimeBudgetMs,
+  researchTimeBudgetMessage,
 } from "../config/researchLimits.js";
 import { Worker, UnrecoverableError } from "bullmq";
 import {
@@ -65,7 +74,7 @@ configureProviderScheduler(
 
 export const researchWorker = new Worker(
   RESEARCH_QUEUE,
-  async (job) => {
+  async (job, _lockToken, lockSignal) => {
     const claimed = await claimRun(job.data.projectId);
 
     if (!claimed) return;
@@ -82,14 +91,13 @@ export const researchWorker = new Worker(
           `Research attempt ${job.attemptsMade + 1}: ${project.question}`,
         );
         const controller = new AbortController();
+        const signal = lockSignal ? AbortSignal.any([controller.signal, lockSignal]) : controller.signal;
         const deadline = setTimeout(
-          () =>
-            controller.abort(
-              new PermanentError(
-                "Research exceeded its thirty-minute time budget.",
-              ),
-            ),
-          Math.max(0, 30 * 60000 - (Date.now() - project.startedAt!.getTime())),
+          () => controller.abort(new PermanentError(researchTimeBudgetMessage)),
+          Math.max(
+            0,
+            researchTimeBudgetMs - (Date.now() - project.startedAt!.getTime()),
+          ),
         );
         let stage = project.status;
         let checking = false;
@@ -110,8 +118,9 @@ export const researchWorker = new Worker(
           return await runPipeline(
             { ...project, startedAt: project.startedAt! },
             {
-              check: () => checkRun(project.id, token),
+              check: () => { signal.throwIfAborted(); return checkRun(project.id, token); },
               save: (state, status, progress, report) => {
+                signal.throwIfAborted();
                 stage = status;
                 return saveCheckpoint(
                   project.id,
@@ -122,15 +131,24 @@ export const researchWorker = new Worker(
                   report,
                 );
               },
-              plan: createResearchPlan,
-              search: searchForSources,
+              plan: (question, depth, scope, signal, checkpoint) => createResearchPlan(question, depth, scope, signal, undefined, checkpoint),
+              search: (searches, question, plan, scope, signal, checkpoint) => searchForSources(
+                searches, question, plan, scope, signal, checkpoint,
+                { search: (query, scope, signal) => queuedSearch(query, scope, signal, project.id,
+                    plan.plannedQueries?.find(q => q.query === query)?.id ?? `Q${plan.queries.indexOf(query)+1}`), review: async () => { throw new Error("Unused"); } },
+              ),
               analyze: analyzeEvidence,
-              verify: verifyFindings,
+              reviewSearch,
+              extractRecords: extractEvidenceRecords,
+              synthesize: synthesizeEvidence,
+
+              verify: (question, analysis, sources, signal) => verifyFindings(`${question} (Research as of ${project.checkpoint.plan?.brief?.currentDate ?? new Date().toISOString().slice(0,10)}; scheduled releases are not available results.)`, analysis, sources, signal),
               present: createReportLayout,
             },
-            controller.signal,
+            signal,
           );
         } catch (error) {
+          deferLostLock(lockSignal);
           if (
             controller.signal.aborted &&
             controller.signal.reason instanceof PermanentError
@@ -162,7 +180,8 @@ export const researchWorker = new Worker(
                 error instanceof PermanentError ? error.message : undefined,
             }),
           );
-          const final = !retryable(error) || job.attemptsMade + 1 >= 3;
+          const final =
+            !retryable(error) || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
           await failRun(project.id, token, publicError(error), final);
           if (final) throw new UnrecoverableError(publicError(error));
           throw error;
@@ -176,10 +195,29 @@ export const researchWorker = new Worker(
   {
     connection,
     concurrency: researchWorkerConcurrency,
+    lockDuration: researchLockDurationMs,
+    lockRenewTime: 15000,
     maxStalledCount: 1,
     settings: { backoffStrategy: providerBackoff },
   },
 );
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
+researchWorker.on("lockRenewalFailed", (jobIds) => {
+  cancelLostLocks(researchWorker, jobIds);
+  console.error(JSON.stringify({
+    event: "research_lock_lost", jobIds,
+    redisStatus: connection.status,
+    lockDurationMs: researchLockDurationMs,
+    eventLoopMaxDelayMs: Math.round(eventLoopDelay.max / 1e6),
+    recovery: "Abort current work and resume checkpoint through stalled-job recovery",
+    at: new Date().toISOString(),
+  }));
+  eventLoopDelay.reset();
+});
+researchWorker.on("stalled", (jobId) => {
+  console.warn(JSON.stringify({ event: "research_job_stalled", jobId, at: new Date().toISOString() }));
+});
 researchWorker.on("error", (error) => {
   const details = error as Error & {
     code?: string;
@@ -216,10 +254,10 @@ researchWorker.on("failed", (job) => {
   );
   if (id) workerLogging.release(id);
 });
-researchWorker.on("completed", (job) => {
+researchWorker.on("completed", (job, result) => {
   const id = job.data.projectId;
   workerLogging.event(id, () =>
-    console.log(JSON.stringify({ event: "research_completed", projectId: id })),
+    console.log(JSON.stringify({ event: result?.awaitingApproval ? "research_plan_ready" : "research_completed", projectId: id })),
   );
   workerLogging.release(id);
 });
@@ -229,16 +267,16 @@ export async function reconcile() {
   reconciling = true;
   try {
     for (const row of await recoverableRuns()) {
-      if (row.startedAt && Date.now() - row.startedAt.getTime() > 15 * 60_000) {
-        await markOrphanFailed(
-          row.id,
-          "Research exceeded its fifteen-minute time budget.",
-        );
+      if (
+        row.startedAt &&
+        Date.now() - row.startedAt.getTime() > researchTimeBudgetMs
+      ) {
+        await markOrphanFailed(row.id, researchTimeBudgetMessage);
         continue;
       }
-      const job = await researchQueue.getJob(row.id);
+      const job = await researchQueue.getJob(row.checkpoint.planApproved ? `${row.id}-approved` : row.id);
       if (!job) {
-        await enqueueResearch(row.id);
+        await enqueueResearch(row.id, row.checkpoint.planApproved);
         continue;
       }
       const state = await job.getState();
@@ -260,7 +298,9 @@ const recovery = setInterval(() => void reconcile(), 15000);
 void reconcile();
 export async function shutdown() {
   clearInterval(recovery);
+  eventLoopDelay.disable();
   await researchWorker.close();
+  await closeSearchQueue();
   await researchQueue.close();
   await connection.quit();
   await producerConnection.quit();

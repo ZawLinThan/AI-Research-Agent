@@ -447,7 +447,7 @@ test("provider adapter uses PKCE and refresh grants and never returns metadata t
         });
       return Response.json({
         ...tokens,
-        user: { ...tokens.user, user_metadata: { secret: "hidden" } },
+        user: { ...tokens.user, user_metadata: { full_name: "Alex Rivera", secret: "hidden" } },
       });
     },
   );
@@ -468,6 +468,7 @@ test("provider adapter uses PKCE and refresh grants and never returns metadata t
     }
   });
   const upstream = new SupabaseAuthProvider();
-  assert.deepEqual(await upstream.exchange("code", "verifier"), tokens);
-  assert.deepEqual(await upstream.refresh("refresh"), tokens);
+  const namedTokens = { ...tokens, user: { ...tokens.user, fullName: "Alex Rivera" } };
+  assert.deepEqual(await upstream.exchange("code", "verifier"), namedTokens);
+  assert.deepEqual(await upstream.refresh("refresh"), namedTokens);
 });

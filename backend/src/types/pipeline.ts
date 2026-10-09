@@ -16,6 +16,14 @@ export type RunRecord = {
 };
 
 export type PipelineDeps = {
+  extractRecords?: typeof import("../services/evidenceReport.service.js").extractEvidenceRecords;
+  synthesize?: typeof import("../services/evidenceReport.service.js").synthesizeEvidence;
+  reviewSearch?: typeof import("../services/search.service.js").reviewSearch;
+  highlights?: {
+    summarize: (question: string, query: string, sources: Source[], signal: AbortSignal) => Promise<{ summary: string }>;
+    gaps: (question: string, summaries: { query: string; summary: string }[], signal: AbortSignal) => Promise<{ gaps: string[] }>;
+    report: (question: string, state: Checkpoint, signal: AbortSignal) => Promise<string>;
+  };
   save: (
     state: Checkpoint,
     status: ResearchStatus,
@@ -28,6 +36,7 @@ export type PipelineDeps = {
     depth: string,
     scope: string,
     signal: AbortSignal,
+    checkpoint?: (plan: ResearchPlan) => Promise<void>,
   ) => Promise<ResearchPlan>;
   search: (
     searches: Record<string, Source[]>,
@@ -42,6 +51,12 @@ export type PipelineDeps = {
     sources: Source[],
     signal: AbortSignal,
   ) => Promise<Analysis>;
+  analyzeQueries?: (
+    question: string,
+    state: Checkpoint,
+    signal: AbortSignal,
+    checkpoint: () => Promise<void>,
+  ) => Promise<Analysis>;
   verify: (
     question: string,
     analysis: Analysis,
@@ -52,5 +67,6 @@ export type PipelineDeps = {
     question: string,
     analysis: Analysis,
     signal: AbortSignal,
+    state?: Checkpoint,
   ) => Promise<ReportLayout>;
 };
