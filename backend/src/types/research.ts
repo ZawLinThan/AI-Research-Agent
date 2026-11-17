@@ -1,3 +1,4 @@
+import type { EvidenceCheckpoint } from "../zodSchema/queryEvidence.schema.js";
 import type {
   Analysis,
   ResearchInput,
@@ -7,6 +8,7 @@ import type {
 export const statuses = [
   "pending",
   "planning",
+  "awaiting_approval",
   "searching",
   "analyzing",
   "generating_report",
@@ -25,25 +27,57 @@ export type Source = {
   queries: string[];
   retrievedAt: string;
   logo?: string;
+  queryIds?: string[];
+  publishedAt?: string;
+  sourceDomain?: string;
 };
 
 export type Checkpoint = {
   plan?: ResearchPlan;
+  planningDraft?: ResearchPlan;
+  planApproved?: boolean;
+  highlightReport?: {
+    summaries: Record<string, { summary: string }>;
+    gaps?: string[];
+    report?: string;
+  };
   searches?: Record<string, Source[]>;
   sources?: Source[];
   searchComplete?: boolean;
   analysis?: Analysis;
+  evidence?: EvidenceCheckpoint;
   followUpDone?: boolean;
   verified?: Analysis;
   reportLayout?: ReportLayout;
   calls?: number;
+  evidenceRecords?: EvidenceRecord[];
+  extractedSourceIds?: string[];
+  evidencePipelineVersion?: number;
+  evidenceRejections?: { sourceUrl: string; reason: string }[];
+  reportClaims?: { text: string; evidenceIds: string[] }[];
+  searchReview?: import("../zodSchema/search.schema.js").SearchReview;
 };
 
 export type ReportLayout = {
+  reportVersion?: number;
+  comparison?: {
+    entities: string[];
+    currentDate: string;
+    rows: {
+      metric: string;
+      period: string;
+      basis: string;
+      cells: { entity: string; findingIndexes: number[] }[];
+      sharedFindingIndexes: number[];
+      coveredEntities?: string[];
+    }[];
+  };
+  limitations?: string[];
   // Optional only for checkpoints created before synthesized summaries.
   summary?: string;
+  summaryOmitted?: boolean;
   overview: number[];
-  sections: { heading: string; findingIndexes: number[] }[];
+  sections: { heading: string; summary?: string; findingIndexes: number[] }[];
 };
 
 export type ResearchProject = {
@@ -58,8 +92,23 @@ export type ResearchProject = {
   createdAt: string;
   updatedAt: string;
   sources?: Source[];
+  stages?: { stage: string; payload: unknown; updatedAt: string }[];
   researchPlan?: ResearchPlan | null;
 };
 
 export const terminal = (status: string) =>
   ["completed", "failed", "cancelled"].includes(status);
+
+export type EvidenceRecord = {
+  id: string;
+  claim: string;
+  entity?: string;
+  metric?: string;
+  period?: string;
+  value?: string;
+  basis?: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  publishedAt?: string;
+  quote: string;
+};

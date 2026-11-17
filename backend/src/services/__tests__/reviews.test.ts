@@ -19,27 +19,252 @@ const review: PlanReview = {
   missingAngles: [],
   revisionInstructions: [],
 };
-test("planner reviews the revised plan and stops when it becomes valid", async () => {
-  const seen: string[] = [];
+
+test("comparison plans search each entity for the same metrics within the budget", async () => {
+  const { comparisonPlan, planIssues } = await import("../planner.service.js");
+  const brief = {
+    originalQuestion: "Sandisk vs Micron 2026",
+    intent: "compare",
+    entities: ["Sandisk Corporation", "Micron"],
+    domain: "technology",
+    answerShape: "comparison" as const,
+    currentDate: "2026-11-17",
+  };
+  const plan = comparisonPlan(brief, "Quick overview", [
+    "revenue",
+    "net income",
+    "diluted EPS",
+    "assets",
+  ]);
+  assert.equal(plan.queries.length, 6);
+  assert.deepEqual(
+    plan.plannedQueries?.map((query) => query.entities),
+    [
+      ["Sandisk Corporation"],
+      ["Micron"],
+      ["Sandisk Corporation"],
+      ["Micron"],
+      ["Sandisk Corporation"],
+      ["Micron"],
+    ],
+  );
+  assert.ok(
+    plan.queries.every((query) => query.includes("2026 latest released")),
+  );
+  assert.deepEqual(planIssues(plan, "Quick overview"), []);
+  assert.equal(
+    comparisonPlan(brief, "Deep research", [
+      "revenue",
+      "net income",
+      "diluted EPS",
+      "assets",
+    ]).queries.length,
+    8,
+  );
+  assert.throws(
+    () =>
+      comparisonPlan(
+        {
+          ...brief,
+          entities: Array.from({ length: 13 }, (_, i) => `Entity ${i}`),
+        },
+        "Deep research",
+        ["revenue"],
+      ),
+    /Narrow the comparison/,
+  );
+  assert.equal(
+    comparisonPlan(
+      {
+        ...brief,
+        originalQuestion: "Compare Sandisk and Micron FY 2026 revenue",
+      },
+      "Quick overview",
+      ["revenue"],
+    ).plannedQueries?.[0].targetPeriod,
+    "FY 2026 released results",
+  );
+  const edited = structuredClone(plan);
+  edited.plannedQueries![0].query =
+    "Sandisk Corporation 2026 latest released net income";
+  edited.queries[0] = edited.plannedQueries![0].query;
+  assert.ok(planIssues(edited, "Quick overview").length);
+});
+
+test("comparison fallback keeps explicitly requested metrics", async () => {
+  const { fallbackComparisonMetrics } = await import("../planner.service.js");
+  assert.deepEqual(
+    fallbackComparisonMetrics("Compare revenue and net income"),
+    ["revenue", "net income"],
+  );
+});
+
+test("the model review is advisory and unavailable reviews leave a warning", async () => {
+  const { comparisonPlan } = await import("../planner.service.js");
+  const brief = {
+    originalQuestion: "Sandisk vs Micron 2026",
+    intent: "compare",
+    entities: ["Sandisk", "Micron"],
+    domain: "technology",
+    answerShape: "comparison" as const,
+    currentDate: "2026-11-17",
+  };
+  const initial = async () =>
+    comparisonPlan(brief, "Quick overview", ["revenue"]);
   const plan = await createResearchPlan(
-    "Question",
-    "Deep research",
+    brief.originalQuestion,
+    "Quick overview",
     "Web",
     undefined,
     {
-      initial: async () => ({ queries: ["initial"] }),
-      review: async (_q, plan) => {
-        seen.push(plan.queries[0]);
-        return { ...review, valid: plan.queries[0] === "revised" };
-      },
-      revise: async () => ({ queries: ["revised"] }),
+      initial,
+      review: async () => ({
+        ...review,
+        issues: ["Use one company per query"],
+      }),
     },
   );
-  assert.deepEqual(seen, ["initial", "revised"]);
-  assert.deepEqual(plan.queries, ["revised"]);
+  assert.deepEqual(plan.queries.length, 2);
+  assert.ok(plan.warnings?.includes("Use one company per query"));
+  const unavailable = await createResearchPlan(
+    brief.originalQuestion,
+    "Quick overview",
+    "Web",
+    undefined,
+    {
+      initial,
+      review: async () => {
+        throw new Error("provider unavailable");
+      },
+    },
+  );
+  assert.match(unavailable.warnings?.[0] ?? "", /review was unavailable/);
+});
+test("approval only re-reviews plans when queries changed", async () => {
+  const { approvalRequiresReview } = await import("../research.service.js");
+  const queries = ["JPM BAC WFC 2025 revenue", "JPM BAC WFC 2025 diluted EPS"];
+
+  assert.equal(approvalRequiresReview(queries, [...queries]), false);
+  assert.equal(approvalRequiresReview([...queries].reverse(), queries), true);
+  assert.equal(
+    approvalRequiresReview([...queries, "another query"], queries),
+    true,
+  );
 });
 
-test("search checkpoints survive a review failure and follow-up queries are bounded and deduplicated", async () => {
+test("explicit versus requests are comparisons even when the brief model says overview", async () => {
+  const { answerShapeForQuestion, normalizeQueryPeriod } =
+    await import("../planner.service.js");
+  assert.equal(
+    answerShapeForQuestion(
+      "Sandisk VS Micron 2026",
+      ["Sandisk", "Micron"],
+      "overview",
+    ),
+    "comparison",
+  );
+  assert.equal(
+    answerShapeForQuestion(
+      "Leading technology companies",
+      ["Sandisk", "Micron"],
+      "overview",
+    ),
+    "overview",
+  );
+  const normalized = normalizeQueryPeriod(
+    {
+      id: "Q1",
+      query: "Sandisk Micron FY 2026 revenue",
+      entities: ["Sandisk", "Micron"],
+      informationNeed: "Compare revenue",
+      targetPeriod: "FY 2026",
+      metric: "revenue",
+    },
+    {
+      originalQuestion: "Sandisk VS Micron 2026",
+      intent: "compare",
+      domain: "technology",
+      answerShape: "comparison",
+      entities: ["Sandisk", "Micron"],
+      currentDate: "2026-11-17",
+    },
+  );
+  assert.equal(
+    normalized.targetPeriod,
+    "2026 latest released annual or interim period",
+  );
+});
+
+test("entity resolution uses supplied current evidence and preserves the question", async (t) => {
+  const { client } = await import("../../config/openRouterAI.js");
+  const { resolveBriefEntities } = await import("../planner.service.js");
+  const brief = {
+    originalQuestion: "Compare SanDisk and Micron revenue",
+    intent: "comparison",
+    domain: "financial",
+    answerShape: "comparison" as const,
+    entities: ["SanDisk", "Micron"],
+    currentDate: "2026-11-17",
+  };
+  t.mock.method(client.chat.completions, "create", async () => ({
+    choices: [
+      {
+        finish_reason: "stop",
+        message: {
+          content: JSON.stringify({
+            resolutions: [
+              {
+                requestedName: "SanDisk",
+                canonicalName: "Sandisk Corporation",
+                ticker: "SNDK",
+                note: "Independent since February 2025",
+                sourceUrl: "https://investor.sandisk.com/separation",
+                status: "verified",
+              },
+              {
+                requestedName: "Micron",
+                canonicalName: "Wrong Company",
+                note: "Unsupported",
+                sourceUrl: "https://example.com/unsupported",
+                status: "verified",
+              },
+            ],
+          }),
+        },
+      },
+    ],
+  }));
+
+  const resolved = await resolveBriefEntities(
+    brief,
+    undefined,
+    async (entity) =>
+      entity === "SanDisk"
+        ? [
+            {
+              url: "https://investor.sandisk.com/separation",
+              title: "Separation",
+              highlights: ["Sandisk became independent in 2025."],
+            },
+          ]
+        : [
+            {
+              url: "https://investors.micron.com",
+              title: "Micron",
+              highlights: ["Micron Technology investor relations."],
+            },
+          ],
+  );
+
+  assert.equal(resolved.originalQuestion, brief.originalQuestion);
+  assert.deepEqual(resolved.entities, ["Sandisk Corporation", "Micron"]);
+  assert.deepEqual(
+    resolved.entityResolutions?.map((item) => item.status),
+    ["verified", "uncertain"],
+  );
+});
+
+test("approved searches are checkpointed and automatic follow-ups are not dispatched", async () => {
   const searches: Record<string, Source[]> = {};
   const calls: string[] = [];
   let checkpoints = 0,
@@ -61,7 +286,10 @@ test("search checkpoints survive a review failure and follow-up queries are boun
     },
     review: async () => {
       reviews++;
-      if (reviews === 1) throw new Error("review failed");
+      if (reviews === 1) {
+        throw new Error("review failed");
+      }
+
       return verdict;
     },
   };
@@ -77,9 +305,299 @@ test("search checkpoints survive a review failure and follow-up queries are boun
       },
       deps,
     );
-  await assert.rejects(run(), /review failed/);
+  await run();
   assert.equal(checkpoints, 1);
   await run();
-  assert.deepEqual(calls, ["initial", "follow up"]);
-  assert.equal(checkpoints, 3);
+  assert.deepEqual(calls, ["initial"]);
+  assert.equal(reviews, 0);
+  assert.equal(checkpoints, 1);
+});
+
+test("verbose planner feedback succeeds in one model call without changing the verdict", async (t) => {
+  const { client } = await import("../../config/openRouterAI.js");
+  const { reviewPlan } = await import("../planner.service.js");
+  const feedback = [
+    " First issue ",
+    "First issue",
+    "Second issue",
+    "Third issue",
+    "Fourth issue",
+  ];
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async () => {
+    calls++;
+    return {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            content: JSON.stringify({
+              ...review,
+              issues: feedback,
+              missingAngles: feedback,
+              revisionInstructions: [
+                "Important revision. ".repeat(30),
+                ...feedback,
+              ],
+            }),
+          },
+        },
+      ],
+    };
+  });
+  const result = await reviewPlan("Compare the research methods", {
+    queries: ["research methods"],
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.score, review.score);
+  assert.deepEqual(result.issues, [
+    "First issue",
+    "Second issue",
+    "Third issue",
+  ]);
+  assert.deepEqual(result.missingAngles, result.issues);
+  assert.equal(result.revisionInstructions.length, 3);
+  assert.ok(result.revisionInstructions.every((item) => item.length <= 200));
+});
+
+test("planner feedback normalization retains malformed entries and invalid decision fields for rejection", async () => {
+  const { normalizePlanReview } =
+    await import("../../lib/modelOutputNormalization.js");
+  const { planReviewSchema } =
+    await import("../../zodSchema/research.schema.js");
+  for (const patch of [
+    { issues: ["one", "two", "three", { text: "invalid fourth entry" }] },
+    { missingAngles: "wrong type" },
+    { revisionInstructions: null },
+    { valid: "true" },
+    { score: { ...review.score, coverage: 2 } },
+  ]) {
+    assert.equal(
+      planReviewSchema.safeParse(normalizePlanReview({ ...review, ...patch }))
+        .success,
+      false,
+    );
+  }
+});
+
+test("deterministic checks reject future years, empty queries and missing entities", async () => {
+  const { planIssues } = await import("../planner.service.js");
+  const issues = planIssues(
+    {
+      queries: ["", "JPMorgan Chase 2027 revenue"],
+      brief: {
+        originalQuestion: "JPM vs BAC",
+        intent: "Compare banks",
+        domain: "banking",
+        answerShape: "comparison",
+        entities: ["JPMorgan Chase", "Bank of America"],
+        currentDate: "2026-10-09",
+      },
+    },
+    "Deep research",
+  );
+  assert.equal(issues.length, 3);
+});
+
+test("searches use bounded parallelism and retain checkpointed queries", async () => {
+  let active = 0,
+    peak = 0,
+    calls = 0;
+  const searches: Record<string, Source[]> = { existing: [] };
+  await searchForSources(
+    searches,
+    "Question",
+    { queries: ["existing", "one", "two", "three", "four"] },
+    "Web",
+    new AbortController().signal,
+    async () => {},
+    {
+      search: async () => {
+        calls++;
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        return [];
+      },
+      review: async () => {
+        throw new Error("Unused");
+      },
+    },
+  );
+  assert.equal(calls, 4);
+  assert.equal(peak, 3);
+  assert.equal(Object.keys(searches).length, 5);
+});
+
+test("ticker entities accept full company names without false missing-entity flags", async () => {
+  const { aliasesFor, planIssues } = await import("../planner.service.js");
+  assert.equal(aliasesFor("BOFA")[1], "Bank of America");
+  assert.deepEqual(
+    planIssues(
+      {
+        queries: [
+          "JPMorgan Chase Bank of America Wells Fargo latest available earnings",
+        ],
+        brief: {
+          originalQuestion: "jpm vs bac vs wfc",
+          intent: "comparison",
+          domain: "financial",
+          answerShape: "comparison",
+          entities: ["JPM", "BAC", "WFC"],
+          currentDate: "2026-10-09",
+        },
+      },
+      "Deep research",
+    ),
+    [],
+  );
+  assert.equal(
+    planIssues(
+      {
+        queries: ["JPMorgan Chase revenue"],
+        brief: {
+          originalQuestion: "jpm vs bac vs wfc",
+          intent: "comparison",
+          domain: "financial",
+          answerShape: "comparison",
+          entities: ["JPM", "BAC", "WFC"],
+          currentDate: "2026-10-09",
+        },
+      },
+      "Deep research",
+    ).length,
+    2,
+  );
+});
+test("planner and reviewer receive explicit calendar context and alias equivalence", async (t) => {
+  const { client } = await import("../../config/openRouterAI.js");
+  const { reviewPlan, dateContext } = await import("../planner.service.js");
+  assert.match(
+    dateContext("2026-10-09"),
+    /previous completed calendar year is 2025/,
+  );
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    assert.match(request.messages[0].content, /Today is 2026-10-09/);
+    assert.match(
+      request.messages[0].content,
+      /each query deliberately searches ONE entity/,
+    );
+    return {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: { content: JSON.stringify({ ...review, valid: true }) },
+        },
+      ],
+    };
+  });
+  await reviewPlan("JPM vs BAC vs WFC", {
+    queries: ["latest earnings"],
+    brief: {
+      originalQuestion: "JPM vs BAC vs WFC",
+      intent: "comparison",
+      domain: "financial",
+      answerShape: "comparison",
+      entities: ["JPM", "BAC", "WFC"],
+      currentDate: "2026-10-09",
+    },
+  });
+});
+
+test("broad requests discover released quarterly periods rather than assuming Q3 is available", async () => {
+  const { normalizeQueryPeriod } = await import("../planner.service.js");
+  const brief = {
+    originalQuestion: "JPM vs BAC vs WFC",
+    intent: "comparison",
+    domain: "financial",
+    answerShape: "comparison" as const,
+    entities: ["JPM"],
+    currentDate: "2026-10-09",
+  };
+  const query = {
+    id: "Q1",
+    query: "JPM Q3 2026 revenue",
+    entities: ["JPM"],
+    informationNeed: "Latest performance",
+    targetPeriod: "Q3 2026",
+  };
+  const result = normalizeQueryPeriod(query, brief);
+  assert.equal(result.query, "JPM latest released quarterly revenue");
+  assert.equal(result.targetPeriod, "Latest released quarter as of 2026-10-09");
+  assert.deepEqual(
+    normalizeQueryPeriod(query, {
+      ...brief,
+      originalQuestion: "When will JPM report Q3 2026?",
+    }),
+    query,
+  );
+  const staleAnnual = normalizeQueryPeriod(
+    {
+      id: "Q2",
+      query: "JPM BAC WFC 2025 revenue",
+      entities: ["JPM", "BAC", "WFC"],
+      informationNeed: "Compare the latest results",
+      targetPeriod: "2025",
+      metric: "revenue",
+    },
+    brief,
+  );
+  assert.equal(
+    staleAnnual.targetPeriod,
+    "Latest released interim period and latest full fiscal year as of 2026-10-09",
+  );
+  assert.match(staleAnnual.query, /latest released interim/);
+});
+
+const comparisonBrief = {
+  originalQuestion: "JPM vs BAC vs WFC",
+  intent: "comparison",
+  domain: "financial",
+  answerShape: "comparison" as const,
+  entities: ["JPM", "BAC", "WFC"],
+  currentDate: "2026-10-09",
+};
+test("comparison queries reject closely related metric bundles", async () => {
+  const { planIssues } = await import("../planner.service.js");
+  for (const metric of [
+    "revenue and net income",
+    "net interest income diluted EPS",
+    "total assets net interest margin",
+    "market cap stock price",
+  ]) {
+    const issues = planIssues(
+      {
+        brief: comparisonBrief,
+        queries: [`JPM BAC WFC latest released ${metric}`],
+      },
+      "Deep research",
+    );
+    assert.equal(issues.length, 1, metric);
+    assert.match(issues[0], /exactly one metric/);
+  }
+});
+test("broad current comparisons cannot be restricted to an older year", async () => {
+  const { planIssues } = await import("../planner.service.js");
+  const stale = planIssues(
+    {
+      brief: comparisonBrief,
+      queries: ["JPM BAC WFC 2025 revenue", "JPM BAC WFC 2025 diluted EPS"],
+    },
+    "Deep research",
+  );
+  assert.ok(stale.some((issue) => issue.includes("latest released interim")));
+  assert.deepEqual(
+    planIssues(
+      {
+        brief: comparisonBrief,
+        queries: [
+          "JPM BAC WFC latest released quarterly revenue and FY 2025 context",
+        ],
+      },
+      "Deep research",
+    ),
+    [],
+  );
 });

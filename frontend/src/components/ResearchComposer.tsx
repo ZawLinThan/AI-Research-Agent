@@ -1,4 +1,4 @@
-import { ArrowRight, Globe2, Settings2, Sparkles } from "lucide-react";
+import { ArrowRight, Globe2, Settings2 } from "lucide-react";
 import type { WorkspaceViewProps } from "../hooks/useResearchWorkspace";
 export const ResearchComposer = ({
   textarea,
@@ -26,11 +26,6 @@ export const ResearchComposer = ({
 >) => (
   <>
     <section className="composer" aria-label="Start research">
-      <div className="composer-heading">
-        <Sparkles size={19} />
-        <span>What would you like to understand?</span>
-        <span className="draft-tag">NEW RESEARCH</span>
-      </div>
       <textarea
         ref={textarea}
         aria-label="Research question"
@@ -79,9 +74,5 @@ export const ResearchComposer = ({
         </button>
       </div>
     </section>
-    <div className="composer-note">
-      <span>Source-backed findings. Saved to your account.</span>
-      <span>Up to 10 sources · 1 follow-up round</span>
-    </div>
   </>
 );

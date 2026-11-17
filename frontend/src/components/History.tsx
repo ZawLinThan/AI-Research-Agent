@@ -31,11 +31,7 @@ export const History = ({
 >) => (
   <section className="research-section">
     <div className="section-heading">
-      <h2>
-        {page === "Source library"
-          ? "Browse evidence by research"
-          : "Your research"}
-      </h2>
+      <h2>{page === "Source library" ? "Browse evidence by research" : ""}</h2>
       <span className="number-pill">{projects.length}</span>
     </div>
     {!userId ? (
@@ -52,7 +48,6 @@ export const History = ({
     ) : (
       <div className="research-table">
         <div className="table-toolbar">
-          <span>All research</span>
           <label className="search-field">
             <Search size={15} />
             <input

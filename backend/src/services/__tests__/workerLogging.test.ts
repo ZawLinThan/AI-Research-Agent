@@ -57,8 +57,10 @@ test("worker output is mirrored, concurrent runs stay separate, and retries appe
       "A attempt failed",
       "A retry",
       "A completed",
-    ])
+    ]) {
       assert.ok(aText.includes(text), text);
+    }
+
     assert.ok(!aText.includes("B failure"));
     assert.ok(!aText.includes("worker startup"));
     const bText = readFileSync(

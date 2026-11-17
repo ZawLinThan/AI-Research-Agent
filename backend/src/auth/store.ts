@@ -18,21 +18,27 @@ export interface AuthStore {
 
 export class RedisAuthStore implements AuthStore {
   constructor(private redis: IORedis) {}
+
   get(key: string) {
     return this.redis.get(key);
   }
+
   async put(key: string, value: string, ttl: number) {
     await this.redis.set(key, value, "EX", ttl);
   }
+
   take(key: string) {
     return this.redis.getdel(key);
   }
+
   async remove(key: string) {
     await this.redis.del(key);
   }
+
   async acquire(key: string, value: string, ttl: number) {
     return (await this.redis.set(key, value, "EX", ttl, "NX")) === "OK";
   }
+
   async replace(key: string, old: string, value: string, ttl: number) {
     return (
       Number(
@@ -47,6 +53,7 @@ export class RedisAuthStore implements AuthStore {
       ) === 1
     );
   }
+
   async release(key: string, value: string) {
     await this.redis.eval(
       "if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end",
@@ -55,6 +62,7 @@ export class RedisAuthStore implements AuthStore {
       value,
     );
   }
+
   async increment(key: string, ttl: number) {
     return Number(
       await this.redis.eval(

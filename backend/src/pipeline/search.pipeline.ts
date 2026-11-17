@@ -1,14 +1,6 @@
 import { reviewSearch, search } from "../services/search.service.js";
 import type { Source } from "../types/research.js";
 import type { ResearchPlan } from "../zodSchema/research.schema.js";
-import { SearchReview } from "../zodSchema/search.schema.js";
-
-const calculateScore = (review: SearchReview) => {
-  return (
-    (review.coverageScore + review.relevanceScore + review.sourceQualityScore) /
-    3.0
-  );
-};
 
 export const searchForSources = async (
   searches: Record<string, Source[]>,
@@ -22,13 +14,6 @@ export const searchForSources = async (
   const execute = async (query: string) => {
     signal.throwIfAborted();
 
-    // The plan is checkpointed into both research_plan and checkpoint.plan.
-    // Save a follow-up before dispatch so a failed request resumes the same query.
-    if (!plan.queries.includes(query)) {
-      plan.queries.push(query);
-      await checkpoint();
-    }
-
     // if the query is already searched, ignore
     if (Object.hasOwn(searches, query)) {
       return;
@@ -37,32 +22,27 @@ export const searchForSources = async (
     console.log("Searching for query: ", query);
 
     searches[query] = await deps.search(query, scope, signal);
+
     await checkpoint();
   };
 
-  for (const query of plan.queries) {
-    await execute(query);
-  }
+  let next = 0;
+  let saving = Promise.resolve();
+  const originalCheckpoint = checkpoint;
 
-  console.log("Initial Search done");
+  checkpoint = () => {
+    saving = saving.then(originalCheckpoint);
 
-  for (let round = 0; round <= 2; round++) {
-    signal.throwIfAborted();
+    return saving;
+  };
 
-    const review = await deps.review(question, plan, searches, signal);
-    console.log("Review round", round, review);
+  await Promise.all(
+    Array.from({ length: Math.min(3, plan.queries.length) }, async () => {
+      while (next < plan.queries.length) {
+        await execute(plan.queries[next++]);
+      }
+    }),
+  );
 
-    if (review.sufficient || round === 2) break;
-
-    const queries = [...new Set(review.followUpQueries)]
-      .filter((q) => !Object.hasOwn(searches, q))
-      .slice(0, 2);
-
-    if (queries.length === 0) break;
-
-    for (const query of queries) {
-      await execute(query);
-    }
-  }
   return searches;
 };

@@ -10,10 +10,22 @@ export class AuthError extends Error {
   }
 }
 
-const userSchema = z.object({
-  id: z.string().uuid(),
-  email: z.string().optional(),
-});
+const userSchema = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string().optional(),
+    user_metadata: z.unknown().optional(),
+  })
+  .transform(({ id, email, user_metadata }) => {
+    const metadata = user_metadata as Record<string, unknown> | null;
+    const name =
+      metadata && typeof metadata === "object"
+        ? (metadata.full_name ?? metadata.name)
+        : undefined;
+    const fullName = typeof name === "string" ? name.trim().slice(0, 200) : "";
+
+    return { id, email, ...(fullName ? { fullName } : {}) };
+  });
 
 const tokensSchema = z.object({
   access_token: z.string().min(1),
@@ -21,6 +33,7 @@ const tokensSchema = z.object({
   expires_in: z.number().positive(),
   user: userSchema,
 });
+
 export type Tokens = z.infer<typeof tokensSchema>;
 
 export interface AuthProvider {
@@ -51,9 +64,13 @@ export class SupabaseAuthProvider implements AuthProvider {
     const key =
       config?.publishableKeys.default ??
       Object.values(config?.publishableKeys ?? {})[0];
-    if (error || !config || !key)
+
+    if (error || !config || !key) {
       throw new AuthError(503, "Authentication is not configured.");
+    }
+
     let response: globalThis.Response;
+
     try {
       response = await fetch(`${config.url}/auth/v1/${path}`, {
         method,
@@ -71,26 +88,34 @@ export class SupabaseAuthProvider implements AuthProvider {
         "Authentication is temporarily unavailable. Please try again.",
       );
     }
+
     if (!response.ok) {
-      if (response.status === 429)
+      if (response.status === 429) {
         throw new AuthError(
           429,
           "Too many authentication attempts. Please try again later.",
         );
-      if (response.status >= 500)
+      }
+
+      if (response.status >= 500) {
         throw new AuthError(503, "Authentication is temporarily unavailable.");
+      }
+
       throw new AuthError(
         401,
         "Authentication failed. Check your credentials or request a new email link.",
       );
     }
+
     return response.status === 204 ? null : response.json();
   }
+
   async login(email: string, password: string) {
     return tokensSchema.parse(
       await this.request("token?grant_type=password", { email, password }),
     );
   }
+
   async signup(
     email: string,
     password: string,
@@ -108,10 +133,14 @@ export class SupabaseAuthProvider implements AuthProvider {
         code_challenge_method: "s256",
       },
     );
-    if (result && typeof result === "object" && "access_token" in result)
+
+    if (result && typeof result === "object" && "access_token" in result) {
       return tokensSchema.parse(result);
+    }
+
     return null;
   }
+
   async recover(email: string, redirect: string, challenge: string) {
     await this.request(`recover?redirect_to=${encodeURIComponent(redirect)}`, {
       email,
@@ -119,6 +148,7 @@ export class SupabaseAuthProvider implements AuthProvider {
       code_challenge_method: "s256",
     });
   }
+
   async exchange(code: string, verifier: string) {
     return tokensSchema.parse(
       await this.request("token?grant_type=pkce", {
@@ -127,6 +157,7 @@ export class SupabaseAuthProvider implements AuthProvider {
       }),
     );
   }
+
   async refresh(token: string) {
     return tokensSchema.parse(
       await this.request("token?grant_type=refresh_token", {
@@ -134,9 +165,11 @@ export class SupabaseAuthProvider implements AuthProvider {
       }),
     );
   }
+
   async password(token: string, password: string) {
     await this.request("user", { password }, token, "PUT");
   }
+
   async logout(token: string) {
     await this.request("logout?scope=local", undefined, token);
   }

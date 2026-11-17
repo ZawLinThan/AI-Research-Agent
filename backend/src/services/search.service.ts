@@ -14,7 +14,7 @@ import { QuerySearchSummary } from "../types/search.js";
 
 import { scheduleProviderRequest } from "../lib/providerRateLimit.js";
 import { beforeProviderCall } from "../lib/providerCalls.js";
-import { exaClient } from "../config/exa.js";
+import { exaClient, requireExaKey } from "../config/exa.js";
 
 const querySchema = z.string().trim().min(1).max(5000);
 
@@ -30,25 +30,25 @@ export const search = async (
       {
         query: querySchema.parse(query),
         type: "auto",
-        numResults: 10,
+        numResults: 5,
         contents: { highlights: true },
         ...(scope === "Academic"
           ? {
-            includeDomains: [
-              "arxiv.org",
-              "pubmed.ncbi.nlm.nih.gov",
-              "pmc.ncbi.nlm.nih.gov",
-              "nature.com",
-              "science.org",
-              "acm.org",
-              "ieee.org",
-            ],
-          }
+              includeDomains: [
+                "arxiv.org",
+                "pubmed.ncbi.nlm.nih.gov",
+                "pmc.ncbi.nlm.nih.gov",
+                "nature.com",
+                "science.org",
+                "acm.org",
+                "ieee.org",
+              ],
+            }
           : {}),
       },
       {
         headers: {
-          "x-api-key": process.env.EXA_API_KEY,
+          "x-api-key": requireExaKey(),
         },
         signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]),
       },
@@ -71,6 +71,8 @@ export const search = async (
     id: r.url,
     url: r.url,
     title: r.title || r.url,
+    publishedAt: r.publishedDate ?? undefined,
+    sourceDomain: new URL(r.url).hostname,
     highlights: r.highlights || [],
     queries: [query],
     retrievedAt: new Date().toISOString(),
@@ -78,10 +80,7 @@ export const search = async (
   }));
 };
 
-const selectReviewSources = (
-  sources: Source[],
-  limit = 4,
-) => {
+const selectReviewSources = (sources: Source[], limit = 4) => {
   const selected: Source[] = [];
   const seenDomains = new Set<string>();
 
@@ -114,12 +113,13 @@ const selectReviewSources = (
 };
 
 const loggingSource = (source: Source) => {
-  console.log("   title: ", source.title)
-  console.log("   url: ", source.url)
-  console.log("   highlights: ", source.highlights
-    .slice(0, 1)
-    .map((text) => text.slice(0, 250)),)
-}
+  console.log("   title: ", source.title);
+  console.log("   url: ", source.url);
+  console.log(
+    "   highlights: ",
+    source.highlights.slice(0, 1).map((text) => text.slice(0, 250)),
+  );
+};
 
 export const prepareSearchReview = (
   searches: Record<string, Source[]>,
@@ -128,15 +128,15 @@ export const prepareSearchReview = (
   const entries = Object.entries(searches).slice(-10);
   const perQuery = Math.floor(10000 / Math.max(entries.length, 1)) - 1;
 
-  console.log("Search Summary for review is :");
+  const debug = process.env.DEBUG_SEARCH_REVIEW === "1";
 
   for (const [query, sources] of entries) {
-    console.log("query: ", query);
-    console.log("resultCount: ", sources.length)
-    console.log("sources: ")
-    sources.map(source => (
-      loggingSource(source)
-    ))
+    if (debug) {
+      console.log("query: ", query);
+      console.log("resultCount: ", sources.length);
+      for (const source of sources.slice(0, 3)) loggingSource(source);
+    }
+
     const summary: QuerySearchSummary = {
       query: query.slice(0, 300),
       resultCount: sources.length,
@@ -151,10 +151,13 @@ export const prepareSearchReview = (
     while (
       JSON.stringify(summary).length > perQuery &&
       summary.topResults.length
-    )
+    ) {
       summary.topResults.pop();
+    }
+
     summaries.push(summary);
   }
+
   return summaries;
 };
 
@@ -256,6 +259,7 @@ export const reviewSearch = async (
 };
 
 export const searchWeb = async (query: string, numResults = 5) => {
+  requireExaKey();
   const checked = querySchema.parse(query);
   const count = z.number().int().min(1).max(10).parse(numResults);
   return exaClient.search(checked, {
@@ -266,6 +270,7 @@ export const searchWeb = async (query: string, numResults = 5) => {
 };
 
 export const extractWeb = async (urls: string[]) => {
+  requireExaKey();
   const checked = z
     .array(
       z

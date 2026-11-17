@@ -1,3 +1,4 @@
+import { analyzeQueryResults } from "../src/services/queryEvidence.service.js";
 import { db, client } from "../src/db/index.js";
 import { researchProjects } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -53,10 +54,18 @@ async function main() {
       .where(eq(researchProjects.id, projectId));
     if (!row?.checkpoint.sources?.length)
       throw new Error("Saved evidence not found");
-    const sources = row.checkpoint.sources;
+    const state = structuredClone(row.checkpoint);
+    const sources = state.sources!;
     console.log(JSON.stringify({ stage: "loaded", sources: sources.length }));
     const analysis = await attempt("analysis", () =>
-      analyzeEvidence(row.question, sources),
+      state.searches
+        ? analyzeQueryResults(
+            row.question,
+            state,
+            new AbortController().signal,
+            async () => {},
+          )
+        : analyzeEvidence(row.question, sources),
     );
     console.log(
       JSON.stringify({
@@ -65,11 +74,15 @@ async function main() {
       }),
     );
     const verified = await attempt("verification", () =>
-      verifyFindings(row.question, analysis, sources),
+      verifyFindings(row.question, analysis, state.sources ?? sources),
     );
     if (!verified.findings.length)
       throw new Error("No findings passed verification");
-    const report = renderReport(row.question, verified, sources);
+    const report = renderReport(
+      row.question,
+      verified,
+      state.sources ?? sources,
+    );
     console.log(
       JSON.stringify({
         stage: "verified",

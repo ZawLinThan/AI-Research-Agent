@@ -13,55 +13,117 @@ export function sourceId(url: string) {
 
 export function canonicalUrl(value: string) {
   const u = new URL(value);
-  if (!["http:", "https:"].includes(u.protocol) || u.username || u.password)
+
+  if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) {
     throw new Error("Invalid source URL");
+  }
+
   u.hash = "";
-  for (const key of [...u.searchParams.keys()])
-    if (key.startsWith("utm_") || ["fbclid", "gclid"].includes(key))
+
+  for (const key of [...u.searchParams.keys()]) {
+    if (key.startsWith("utm_") || ["fbclid", "gclid"].includes(key)) {
       u.searchParams.delete(key);
+    }
+  }
+
+  u.searchParams.sort();
+
   return u.href;
 }
-export function selectSources(sources: Source[], limit = 10) {
+
+export function selectSources(
+  sources: Source[],
+  limit = Number.POSITIVE_INFINITY,
+) {
   const map = new Map<string, Source>();
+
   for (const s of sources) {
     let url: string;
+
     try {
       url = canonicalUrl(s.url);
     } catch {
       continue;
     }
+
     const previous = map.get(url);
+
     map.set(url, {
       ...s,
       id: sourceId(url),
       url,
+      queryIds: [
+        ...new Set([...(previous?.queryIds || []), ...(s.queryIds || [])]),
+      ],
       queries: [...new Set([...(previous?.queries || []), ...s.queries])],
       highlights: [
         ...new Set([...(previous?.highlights || []), ...s.highlights]),
       ]
-        .slice(0, 2)
-        .map((v) => v.slice(0, 900)),
+        .slice(0, 8)
+        .map((v) => v.slice(0, 1500)),
     });
   }
   return [...map.values()]
-    .filter((s) => s.highlights.some((h) => h.trim().length > 20))
     .sort((a, b) => b.queries.length - a.queries.length)
     .slice(0, limit);
 }
+
+export function filterAnalysisFindings(
+  analysis: Analysis,
+  keep: (finding: Analysis["findings"][number], index: number) => boolean,
+): Analysis {
+  const remap = new Map<number, number>();
+  const findings = analysis.findings.filter((finding, index) => {
+    if (!keep(finding, index)) {
+      return false;
+    }
+
+    remap.set(index, remap.size);
+
+    return true;
+  });
+  const indexes = (values: number[]) =>
+    values.flatMap((index) => (remap.has(index) ? [remap.get(index)!] : []));
+
+  return {
+    ...analysis,
+    findings,
+    ...(analysis.topics
+      ? {
+          topics: analysis.topics
+            .map((topic) => ({
+              ...topic,
+              findingIndexes: indexes(topic.findingIndexes),
+            }))
+            .filter((topic) => topic.findingIndexes.length),
+        }
+      : {}),
+    ...(analysis.disagreements
+      ? {
+          disagreements: analysis.disagreements
+            .map((disagreement) => ({
+              ...disagreement,
+              findingIndexes: indexes(disagreement.findingIndexes),
+            }))
+            .filter((disagreement) => disagreement.findingIndexes.length > 1),
+        }
+      : {}),
+  };
+}
+
 export function groundedFindings(
   analysis: Analysis,
   sources: Source[],
 ): Analysis {
   const map = new Map(sources.map((s) => [s.id, s]));
-
-  return {
-    ...analysis,
-    findings: analysis.findings.filter((f) =>
-      f.evidence.every((e) =>
+  return filterAnalysisFindings(
+    analysis,
+    (finding) =>
+      finding.evidence.length > 0 &&
+      finding.evidence.every((e) =>
         map.get(e.sourceId)?.highlights.some((h) => h.includes(e.quote)),
       ),
-    ),
-  };
+  );
 }
 
 export async function analyzeEvidence(
@@ -87,15 +149,18 @@ export async function analyzeEvidence(
     900,
     Math.floor(6500 / Math.max(1, Math.min(10, excerpts.length))),
   );
-  for (const excerpt of excerpts)
-    excerpt.text = excerpt.text.slice(0, perExcerpt);
 
-  if (!excerpts.length)
+  for (const excerpt of excerpts) {
+    excerpt.text = excerpt.text.slice(0, perExcerpt);
+  }
+
+  if (!excerpts.length) {
     return {
       findings: [],
       gaps: ["No usable excerpts were supplied."],
       followUpQueries: [],
     };
+  }
 
   const selectionSchema = z.object({
     findings: z
@@ -116,19 +181,23 @@ export async function analyzeEvidence(
   });
 
   const result: z.infer<typeof selectionSchema> = { findings: [], gaps: [] };
+
   for (let offset = 0; offset < excerpts.length; offset += 10) {
     const batchExcerpts = excerpts.slice(offset, offset + 10);
     const suppliedIds = new Set(
       batchExcerpts.map((excerpt) => excerpt.excerptId),
     );
+
     // Preserve the existing source-ID fallback only for unambiguous sources.
     for (const excerpt of batchExcerpts) {
       if (
         batchExcerpts.filter((other) => other.sourceId === excerpt.sourceId)
           .length === 1
-      )
+      ) {
         suppliedIds.add(excerpt.sourceId);
+      }
     }
+
     const batch = await structured(
       'Analyze the supplied excerpts. Return {"findings":[{"claim":"a precise factual claim","excerptIds":["provided excerpt ID"]}],"gaps":["unanswered question or contradiction"]}. For excerptIds, copy the excerptId value exactly from the supplied excerpts; do not use sourceId or invent IDs. Aim for 4–6 distinct, useful findings from this batch when the evidence supports them, each under 600 characters. Start with findings that directly answer the question, then cover specific dimensions with concrete facts, relevant numbers, dates, examples, comparisons, and qualifications. Write complete, plain-English sentences; explain technical terms and remove extraction markup. Do not pad or repeat findings to meet a count. excerptIds must be an array of exactly one or two distinct strings, never more than two. Select the strongest evidence that directly supports the whole claim. Do not generate quotations. If evidence is inadequate return fewer or no findings. Identify conflicting evidence and limitations. gaps must be an array of at most five plain strings, each under 300 characters; never objects, arrays, nulls, or numbers. Example: "gaps":["Comparable figures for the same year were not available."]. Return only findings and gaps; include both fields even when empty. Follow-up searches have already been handled by the search pipeline. ' + evidenceInterpretationRules,
       { question, excerpts: batchExcerpts },
@@ -137,9 +206,11 @@ export async function analyzeEvidence(
       2000,
       (value) => normalizeEvidenceSelection(value, suppliedIds),
     );
+
     result.findings.push(...batch.findings);
     result.gaps.push(...batch.gaps);
   }
+
   result.gaps = [...new Set(result.gaps)].slice(0, 5);
   result.findings = result.findings
     .filter(

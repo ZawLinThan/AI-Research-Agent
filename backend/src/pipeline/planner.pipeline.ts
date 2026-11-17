@@ -1,37 +1,64 @@
 import {
   createInitialPlan,
   reviewPlan,
-  revisePlan,
+  planIssues,
 } from "../services/planner.service.js";
-import { RunStopped } from "../lib/errors.js";
+import { PermanentError, RunStopped } from "../lib/errors.js";
+import type { ResearchPlan, PlanReview } from "../zodSchema/research.schema.js";
 
 export const createResearchPlan = async (
   question: string,
   depth: string,
   scope: string,
   signal?: AbortSignal,
-  deps = { initial: createInitialPlan, review: reviewPlan, revise: revisePlan },
-) => {
+  deps = { initial: createInitialPlan, review: reviewPlan },
+  checkpoint?: (plan: ResearchPlan) => Promise<void>,
+): Promise<ResearchPlan> => {
   if (signal?.aborted) {
     throw new RunStopped("Run stopped");
   }
 
-  let plan = await deps.initial(question, depth, scope, signal);
-  console.log("Initial Plan is ",  plan); 
+  const plan = await deps.initial(question, depth, scope, signal);
+  const issues = planIssues(plan, depth);
 
-  let review = await deps.review(question, plan, signal);
-  console.log("Initial Review says ", review)
+  if (issues.length) {
+    throw new PermanentError(
+      `Research plan could not be prepared: ${issues.join(" ")}`,
+    );
+  }
 
-  for (let count = 0; !review.valid && count < 2; count++) {
+  await checkpoint?.(plan);
+
+  let reviews: PlanReview[] = [];
+  const warnings = [...(plan.warnings ?? [])];
+
+  try {
+    const review = await deps.review(question, plan, signal);
+    reviews = [review];
+    if (!review.valid) {
+      warnings.push(
+        ...review.issues,
+        ...review.missingAngles,
+        ...review.revisionInstructions,
+      );
+    }
+  } catch (error) {
     if (signal?.aborted) {
       throw new RunStopped("Run stopped");
     }
 
-    plan = await deps.revise(question, depth, scope, plan, review, signal);
-    console.log(`${count+1} revise gives `, plan); 
-
-    review = await deps.review(question, plan, signal);
-    console.log("Review for the prev revise ", review); 
+    warnings.push(
+      "Automatic plan review was unavailable; inspect the queries before approving.",
+    );
   }
-  return plan;
+
+  for (const resolution of plan.brief?.entityResolutions ?? []) {
+    if (resolution.status === "uncertain") {
+      warnings.push(`${resolution.requestedName}: ${resolution.note}`);
+    }
+  }
+
+  const completed = { ...plan, reviews, warnings: [...new Set(warnings)] };
+  await checkpoint?.(completed);
+  return completed;
 };

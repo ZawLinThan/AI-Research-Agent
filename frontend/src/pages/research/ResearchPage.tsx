@@ -1,3 +1,4 @@
+import { PlanReview } from "../../components/PlanReview";
 import { ArrowLeft, Download } from "lucide-react";
 import { ReportView } from "../../components/ReportView";
 import { ResearchProgress } from "../../components/ResearchProgress";
@@ -30,6 +31,13 @@ export const ResearchPage = (view: WorkspaceViewProps) => {
             </p>
           </div>
           <ResearchProgress {...view} />
+          {detail.status === "awaiting_approval" && (
+            <PlanReview
+              key={detail.id}
+              project={detail}
+              onApproved={() => view.setReload((v) => v + 1)}
+            />
+          )}
           {detail.report && (
             <section className="report-panel">
               <div className="section-heading">

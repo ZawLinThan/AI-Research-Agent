@@ -34,17 +34,27 @@ class MemoryStore implements AuthStore {
     this.rows.delete(k);
   }
   async acquire(k: string, v: string) {
-    if (this.rows.has(k)) return false;
+    if (this.rows.has(k)) {
+      return false;
+    }
+
     this.rows.set(k, v);
+
     return true;
   }
   async replace(k: string, old: string, v: string) {
-    if (this.rows.get(k) !== old) return false;
+    if (this.rows.get(k) !== old) {
+      return false;
+    }
+
     this.rows.set(k, v);
+
     return true;
   }
   async release(k: string, v: string) {
-    if (this.rows.get(k) === v) this.rows.delete(k);
+    if (this.rows.get(k) === v) {
+      this.rows.delete(k);
+    }
   }
   async increment(k: string) {
     const n = Number(this.rows.get(k) ?? 0) + 1;
@@ -411,10 +421,11 @@ test("HTTP auth flow protects writes, hides tokens, restores sessions and logs o
     }),
   });
   assert.deepEqual(await immediate.json(), { session: { user: tokens.user } });
-  for (let n = 0; n < 31; n++)
+  for (let n = 0; n < 31; n++) {
     await store.increment(
       `auth:rate:${createHash("sha256").update("127.0.0.1").digest("hex")}`,
     );
+  }
   assert.equal(
     (
       await fetch(`${base}/api/auth/login`, {
@@ -436,24 +447,30 @@ test("provider adapter uses PKCE and refresh grants and never returns metadata t
         (options.headers as Record<string, string>).apikey,
         "sb_publishable_test",
       );
-      if (url.includes("grant_type=pkce"))
+      if (url.includes("grant_type=pkce")) {
         assert.deepEqual(JSON.parse(options.body as string), {
           auth_code: "code",
           code_verifier: "verifier",
         });
-      if (url.includes("grant_type=refresh_token"))
+      }
+
+      if (url.includes("grant_type=refresh_token")) {
         assert.deepEqual(JSON.parse(options.body as string), {
           refresh_token: "refresh",
         });
+      }
       return Response.json({
         ...tokens,
-        user: { ...tokens.user, user_metadata: { secret: "hidden" } },
+        user: {
+          ...tokens.user,
+          user_metadata: { full_name: "Alex Rivera", secret: "hidden" },
+        },
       });
     },
   );
-  const oldUrl = process.env.SUPABASE_URL,
-    oldKey = process.env.SUPABASE_PUBLISHABLE_KEY,
-    oldKeys = process.env.SUPABASE_PUBLISHABLE_KEYS;
+  const oldUrl = process.env.SUPABASE_URL;
+  const oldKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const oldKeys = process.env.SUPABASE_PUBLISHABLE_KEYS;
   process.env.SUPABASE_URL = "https://project.test";
   process.env.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
   delete process.env.SUPABASE_PUBLISHABLE_KEYS;
@@ -463,11 +480,18 @@ test("provider adapter uses PKCE and refresh grants and never returns metadata t
       SUPABASE_PUBLISHABLE_KEY: oldKey,
       SUPABASE_PUBLISHABLE_KEYS: oldKeys,
     })) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   });
   const upstream = new SupabaseAuthProvider();
-  assert.deepEqual(await upstream.exchange("code", "verifier"), tokens);
-  assert.deepEqual(await upstream.refresh("refresh"), tokens);
+  const namedTokens = {
+    ...tokens,
+    user: { ...tokens.user, fullName: "Alex Rivera" },
+  };
+  assert.deepEqual(await upstream.exchange("code", "verifier"), namedTokens);
+  assert.deepEqual(await upstream.refresh("refresh"), namedTokens);
 });
