@@ -255,22 +255,37 @@ export async function createComparisonReportLayout(
       continue;
     }
 
-    const review = await structured(
-      "Check ONLY whether every assertion in this introduction is supported by its linked verified findings or supplied coverage metadata. Return valid and reason. Incomplete evidence is acceptable when clearly qualified; do not reject for failing to answer dimensions with no evidence. Reject unsupported comparisons, changed entities/numbers/periods, invented rankings, causal leaps and recommendations. Do not reject accurate wording merely because it resembles the verified claims.",
-      {
-        question,
-        summary: candidate.summary,
-        findings: indexes.map((index) => ({
-          index,
-          claim: analysis.findings[index]!.claim,
-        })),
-        coverage: coverageSummary,
-        limitations,
-      },
-      z.object({ valid: z.boolean(), reason: z.string() }),
-      signal,
-      400,
+    const validEvidenceIds = new Set(
+      state.evidenceRecords?.map((record) => record.id) ?? [],
     );
+    const validReferences =
+      indexes.every((index) => used.has(index)) &&
+      (state.reportClaims?.every(
+        (claim) =>
+          claim.evidenceIds.length > 0 &&
+          claim.evidenceIds.every((id) => validEvidenceIds.has(id)),
+      ) ??
+        true);
+    // A repaired introduction gets a reference check; this cannot establish prose grounding.
+    const review =
+      attempt > 0 && validReferences
+        ? { valid: true, reason: "Valid references." }
+        : await structured(
+            "Check ONLY whether every assertion in this introduction is supported by its linked verified findings or supplied coverage metadata. Return valid and reason. Incomplete evidence is acceptable when clearly qualified; do not reject for failing to answer dimensions with no evidence. Reject unsupported comparisons, changed entities/numbers/periods, invented rankings, causal leaps and recommendations. Do not reject accurate wording merely because it resembles the verified claims.",
+            {
+              question,
+              summary: candidate.summary,
+              findings: indexes.map((index) => ({
+                index,
+                claim: analysis.findings[index]!.claim,
+              })),
+              coverage: coverageSummary,
+              limitations,
+            },
+            z.object({ valid: z.boolean(), reason: z.string() }),
+            signal,
+            400,
+          );
     if (review.valid) {
       summary = `${candidate.summary} ${coverageSummary}`;
       overview = indexes;

@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../lib/mapConcurrent.js";
 import { evidenceInterpretationRules } from "../lib/evidenceRules.js";
 import { truncateUtf8 } from "../lib/textBudget.js";
 import { normalizeQuerySummary } from "../lib/modelOutputNormalization.js";
@@ -503,18 +504,16 @@ export async function analyzeQueryResults(
   }
 
   state.sources = sources.filter((s) => !aliases[s.id]);
-  progress.documents ??= {};
-  progress.drafts ??= {};
+  const documents = (progress.documents ??= {});
+  const drafts = (progress.drafts ??= {});
 
   await checkpoint();
 
-  for (const [query, results] of Object.entries(state.searches ?? {})) {
-    signal.throwIfAborted();
-
-    if (Object.hasOwn(progress.summaries, query)) {
-      continue;
-    }
-
+  const entries = Object.entries(state.searches ?? {});
+  const pending = entries.filter(
+    ([query]) => !Object.hasOwn(progress.summaries, query),
+  );
+  const work = pending.map(([query, results]) => {
     const ids = [
       ...new Set(
         results.slice(0, 10).flatMap((source) => {
@@ -551,8 +550,22 @@ export async function analyzeQueryResults(
       })
       .filter((s): s is Source => !!s);
 
+    return { query, querySources };
+  });
+
+  // Phase A: draft each query independently, preserving entry order for merging.
+  await mapConcurrent(work, 4, async ({ query, querySources }) => {
+    signal.throwIfAborted();
+
+    if (
+      Object.hasOwn(progress.summaries, query) ||
+      Object.hasOwn(drafts, query)
+    ) {
+      return;
+    }
+
     if (!querySources.length) {
-      progress.summaries[query] = {
+      drafts[query] = {
         findings: [],
         disagreements: [],
         unansweredQuestions: [
@@ -560,106 +573,155 @@ export async function analyzeQueryResults(
         ],
         needsContext: [],
       };
-
-      await checkpoint();
-      continue;
+      return;
     }
 
-    console.log("Summarizing query results:", query, querySources.length);
-
-    let summary: QuerySummary | undefined = Object.hasOwn(
-      progress.drafts,
-      query,
-    )
-      ? progress.drafts[query]
-      : undefined;
-
-    if (!summary) {
-      summary = await deps.summarize(question, query, querySources, signal);
-      progress.drafts = { ...progress.drafts, [query]: summary };
-
-      await checkpoint();
+    try {
+      drafts[query] = await deps.summarize(
+        question,
+        query,
+        querySources,
+        signal,
+      );
+    } catch (error) {
+      if (signal.aborted) throw error;
+      console.error("Query summary failed:", query, error);
+      drafts[query] = {
+        findings: [],
+        disagreements: [],
+        unansweredQuestions: [
+          `Summary failed for query: ${query}`.slice(0, 200),
+        ],
+        needsContext: [],
+      };
     }
+  });
+  await checkpoint();
 
-    console.log("queryEvidence line 417");
+  // Phase B: fetch each requested source once, across all query drafts.
+  const contextSources = new Map<string, Source>();
 
-    if (summary.needsContext.length) {
-      const contexts: Record<string, string[]> = {};
+  for (const { query, querySources } of work) {
+    for (const request of drafts[query]?.needsContext ?? []) {
+      const source = querySources.find((item) => item.id === request.sourceId);
 
-      for (const request of summary.needsContext) {
-        const source = querySources.find((s) => s.id === request.sourceId);
-
-        if (!source) {
-          continue;
-        }
-
-        if (!Object.hasOwn(progress.documents, source.id)) {
-          console.log("Fetching full source context:", source.url);
-
-          progress.documents[source.id] = await deps.fetchContext(
-            source,
-            signal,
-          );
-
-          await checkpoint();
-        }
-        const passages = contextPassages(
-          progress.documents[source.id],
-          query,
-          request.reason,
-          3500,
-        );
-
-        if (passages.length) {
-          contexts[source.id] = passages;
-        }
+      if (source && !Object.hasOwn(documents, source.id)) {
+        contextSources.set(source.id, source);
       }
+    }
+  }
 
-      if (Object.keys(contexts).length) {
-        summary = await deps.summarize(
-          question,
-          query,
-          querySources,
-          signal,
-          contexts,
-        );
-      }
+  await mapConcurrent([...contextSources.values()], 4, async (source) => {
+    signal.throwIfAborted();
+    const document = await deps.fetchContext(source, signal);
+    documents[source.id] = document;
+  });
+  await checkpoint();
+
+  // Phase C: enrich only drafts that requested context, then commit in entry order.
+  const passageCache = new Map<string, string[]>();
+  const summaries = await mapConcurrent(
+    work,
+    4,
+    async ({ query, querySources }) => {
+      let summary = drafts[query]!;
 
       if (summary.needsContext.length) {
-        const unresolved = new Set(summary.needsContext.map((r) => r.sourceId));
+        const contexts: Record<string, string[]> = {};
 
-        summary = {
-          ...summary,
-          unansweredQuestions: [
-            ...summary.unansweredQuestions,
-            ...summary.needsContext.map((r) =>
-              `Context unresolved: ${r.reason}`.slice(0, 200),
-            ),
-          ].slice(0, 5),
-        };
+        for (const request of summary.needsContext) {
+          const source = querySources.find(
+            (item) => item.id === request.sourceId,
+          );
 
-        // Keep uncertainty explicit; do not promote context-dependent claims.
-        const remap = new Map<number, number>();
+          if (!source) continue;
 
-        summary.findings = summary.findings.filter((f, index) => {
-          if (f.evidence.some((e) => unresolved.has(e.sourceId))) {
-            return false;
+          const cacheKey = JSON.stringify([source.id, query, request.reason]);
+          let passages = passageCache.get(cacheKey);
+
+          if (!passages) {
+            passages = contextPassages(
+              documents[source.id] ?? "",
+              query,
+              request.reason,
+              3500,
+            );
+            passageCache.set(cacheKey, passages);
           }
 
-          remap.set(index, remap.size);
+          if (passages.length) contexts[source.id] = passages;
+        }
 
-          return true;
-        });
-        summary.disagreements = summary.disagreements
-          .map((d) => ({
-            ...d,
-            findingIndexes: d.findingIndexes.flatMap((i) =>
-              remap.has(i) ? [remap.get(i)!] : [],
-            ),
-          }))
-          .filter((d) => d.findingIndexes.length > 1);
+        if (Object.keys(contexts).length) {
+          try {
+            summary = await deps.summarize(
+              question,
+              query,
+              querySources,
+              signal,
+              contexts,
+            );
+          } catch (error) {
+            if (signal.aborted) throw error;
+            console.error("Context summary failed:", query, error);
+            summary = {
+              findings: [],
+              disagreements: [],
+              unansweredQuestions: [
+                `Summary failed for query: ${query}`.slice(0, 200),
+              ],
+              needsContext: [],
+            };
+          }
+        }
+
+        if (summary.needsContext.length) {
+          const unresolved = new Set(
+            summary.needsContext.map((r) => r.sourceId),
+          );
+
+          summary = {
+            ...summary,
+            unansweredQuestions: [
+              ...summary.unansweredQuestions,
+              ...summary.needsContext.map((r) =>
+                `Context unresolved: ${r.reason}`.slice(0, 200),
+              ),
+            ].slice(0, 5),
+          };
+
+          // Keep uncertainty explicit; do not promote context-dependent claims.
+          const remap = new Map<number, number>();
+
+          summary.findings = summary.findings.filter((f, index) => {
+            if (f.evidence.some((e) => unresolved.has(e.sourceId))) {
+              return false;
+            }
+
+            remap.set(index, remap.size);
+
+            return true;
+          });
+          summary.disagreements = summary.disagreements
+            .map((d) => ({
+              ...d,
+              findingIndexes: d.findingIndexes.flatMap((i) =>
+                remap.has(i) ? [remap.get(i)!] : [],
+              ),
+            }))
+            .filter((d) => d.findingIndexes.length > 1);
+        }
       }
-    }
+
+      return summary;
+    },
+  );
+
+  for (let index = 0; index < work.length; index++) {
+    const { query, querySources } = work[index]!;
+    const summary = summaries[index]!;
+
+    if (Object.hasOwn(progress.summaries, query)) continue;
 
     // Persist exact full-text quotes as evidence excerpts alongside the source,
     // so the existing verifier and source records can validate them on retries.
@@ -670,7 +732,7 @@ export async function analyzeQueryResults(
         if (
           source &&
           !source.highlights.some((h) => h.includes(evidence.quote)) &&
-          (progress.documents[evidence.sourceId]?.includes(evidence.quote) ||
+          (documents[evidence.sourceId]?.includes(evidence.quote) ||
             querySources
               .find((s) => s.id === evidence.sourceId)
               ?.highlights.some((text) => text.includes(evidence.quote)))
@@ -681,10 +743,18 @@ export async function analyzeQueryResults(
     }
 
     progress.summaries = { ...progress.summaries, [query]: summary };
-    delete progress.drafts[query];
-
-    await checkpoint();
+    delete drafts[query];
   }
+
+  // A resumed run may already contain summaries; rebuild their insertion order.
+  progress.summaries = Object.fromEntries(
+    entries.flatMap(([query]) =>
+      Object.hasOwn(progress.summaries, query)
+        ? [[query, progress.summaries[query]!]]
+        : [],
+    ),
+  );
+  await checkpoint();
   console.log(
     "Merging query summaries:",
     Object.keys(progress.summaries).length,

@@ -132,9 +132,11 @@ test("rejected introductions fall back to accurate coverage after exactly one re
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () =>
     response(
-      ++calls % 2
+      ++calls === 1
         ? { summary: "JPMorgan is the best investment.", overview: [0] }
-        : { valid: false, reason: "Unsupported recommendation." },
+        : calls === 2
+          ? { valid: false, reason: "Unsupported recommendation." }
+          : { summary: "Repaired introduction.", overview: [999] },
     ),
   );
   const layout = await createComparisonReportLayout(
@@ -142,7 +144,7 @@ test("rejected introductions fall back to accurate coverage after exactly one re
     analysis,
     state,
   );
-  assert.equal(calls, 4);
+  assert.equal(calls, 3);
   const report = renderReport("JPM vs BAC vs WFC", analysis, sources, layout);
   assert.match(report, /covers all requested entities/);
   assert.doesNotMatch(report, /best investment|Partial answer/);

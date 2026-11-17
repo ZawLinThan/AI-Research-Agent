@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { client } from "../../config/openRouterAI.js";
 import {
   summarizeHighlights,
@@ -173,4 +174,50 @@ test("highlight source preparation does not truncate or lose same-URL excerpts",
   const sources = highlightSources([source, { ...source, highlights: [long] }]);
   assert.equal(sources.length, 1);
   assert.deepEqual(sources[0].highlights, [...source.highlights, long]);
+});
+
+test("highlight source grouping preserves canonical URLs, order, and all excerpts", () => {
+  const results: Source[] = [
+    {
+      ...source,
+      url: "https://example.com/a?utm_source=mail",
+      highlights: ["first", "shared"],
+    },
+    { ...source, url: "https://example.com/b", highlights: ["other"] },
+    {
+      ...source,
+      url: "https://example.com/a#section",
+      highlights: ["shared", "later", "  "],
+    },
+    { ...source, url: "not a URL", highlights: ["discarded"] },
+  ];
+  const prepared = highlightSources(results);
+
+  assert.deepEqual(
+    prepared.map((item) => item.url),
+    ["https://example.com/a", "https://example.com/b"],
+  );
+  assert.deepEqual(prepared[0].highlights, ["first", "shared", "later"]);
+  assert.deepEqual(prepared[1].highlights, ["other"]);
+});
+
+test("highlight source grouping micro-benchmark", (t) => {
+  const run = (count: number) => {
+    const results = Array.from({ length: count }, (_, index) => ({
+      ...source,
+      url: `https://example.com/article-${index}?utm_source=test`,
+      highlights: [`Excerpt ${index}`],
+    }));
+    const started = performance.now();
+    const prepared = highlightSources(results);
+    assert.equal(prepared.length, count);
+    return performance.now() - started;
+  };
+
+  run(50);
+  const small = run(200);
+  const large = run(400);
+  t.diagnostic(
+    `200 sources: ${small.toFixed(2)} ms; 400 sources: ${large.toFixed(2)} ms`,
+  );
 });

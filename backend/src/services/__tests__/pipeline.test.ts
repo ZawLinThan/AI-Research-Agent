@@ -151,6 +151,10 @@ test("unsupported findings do not produce a completed report", async () => {
 test("provider budgets and deadlines survive retries", async () => {
   const f = fixture();
   f.record.checkpoint.calls = maxProviderCalls;
+  f.deps.plan = async () => {
+    await beforeProviderCall();
+    return { queries: ["q1"] };
+  };
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /budget/,
@@ -257,6 +261,136 @@ test("nested calls cannot bypass the remaining budget on a retried run", async (
   );
   assert.equal(requests, 1);
   assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("concurrent provider requests reserve atomically without an execute surcharge", async () => {
+  const f = fixture();
+  const available = 10;
+  f.record.checkpoint.calls = maxProviderCalls - available;
+  let results: PromiseSettledResult<void>[] = [];
+  let actionsRan = 0;
+  f.deps.plan = async () => {
+    results = await Promise.allSettled(
+      Array.from({ length: 20 }, async () => {
+        await beforeProviderCall();
+        actionsRan++;
+      }),
+    );
+    return { queries: ["q1"] };
+  };
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(
+    results.filter((result) => result.status === "fulfilled").length,
+    available,
+  );
+  assert.equal(
+    results.filter((result) => result.status === "rejected").length,
+    available,
+  );
+  assert.equal(actionsRan, 10);
+  assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("execute without a provider request does not consume the provider budget", async () => {
+  const f = fixture();
+  f.record.checkpoint.calls = maxProviderCalls;
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("item checkpoints coalesce and a failed extraction resumes from its hard flush", async () => {
+  const f = fixture();
+  const many = Array.from({ length: 50 }, (_, index): Source => {
+    const itemUrl = `https://example.com/source-${index}`;
+    return { ...source, id: sourceId(itemUrl), url: itemUrl };
+  });
+  f.record.checkpoint = {
+    plan: { queries: ["q1"] },
+    planApproved: true,
+    searchComplete: true,
+    searches: { q1: many },
+  };
+  const writes: { status: string; extracted: number }[] = [];
+  const originalSave = f.deps.save;
+  f.deps.save = async (state, status, progress, report) => {
+    writes.push({ status, extracted: state.extractedSourceIds?.length ?? 0 });
+    await originalSave(state, status, progress, report);
+  };
+  let fail = true;
+  f.deps.extractRecords = async (
+    _question,
+    sources,
+    state,
+    _signal,
+    checkpoint,
+  ) => {
+    state.extractedSourceIds ??= [];
+    for (const item of sources) {
+      if (state.extractedSourceIds.includes(item.id)) continue;
+      state.extractedSourceIds.push(item.id);
+      await checkpoint();
+      if (fail && state.extractedSourceIds.length === 25) {
+        throw new Error("Simulated extraction failure");
+      }
+    }
+    return state.evidenceRecords ?? [];
+  };
+  f.deps.analyze = async (_question, sources) => ({
+    ...analysis,
+    findings: [
+      {
+        claim: analysis.findings[0].claim,
+        evidence: [
+          { sourceId: sources[0].id, quote: sources[0].highlights[0] },
+        ],
+      },
+    ],
+  });
+  f.deps.verify = async (_question, candidate) => candidate;
+
+  await assert.rejects(
+    runPipeline(f.record, f.deps, new AbortController().signal),
+    /Simulated extraction failure/,
+  );
+  assert.equal(f.record.checkpoint.extractedSourceIds?.length, 25);
+  fail = false;
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.extractedSourceIds?.length, 50);
+  assert.equal(
+    writes.filter(
+      (write) =>
+        write.status === "analyzing" &&
+        write.extracted > 0 &&
+        write.extracted < 50,
+    ).length,
+    1,
+  );
+  assert.ok(
+    writes.length < 20,
+    `Expected coalesced writes, got ${writes.length}`,
+  );
+});
+
+test("dirty search progress flushes during a long stage", async () => {
+  const f = fixture();
+  f.deps.search = async (
+    searches,
+    _question,
+    _plan,
+    _scope,
+    _signal,
+    checkpoint,
+  ) => {
+    searches.q1 = [source];
+    await checkpoint();
+    await new Promise((resolve) => setTimeout(resolve, 2650));
+    assert.deepEqual(f.record.checkpoint.searches?.q1, [source]);
+    return searches;
+  };
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
 });
 
 test("planning pauses and retries never search before approval", async () => {

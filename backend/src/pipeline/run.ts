@@ -35,17 +35,100 @@ export async function runPipeline(
     await deps.check();
   };
 
+  let saveQueue = Promise.resolve();
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let dirty = false;
+  let dirtyStatus: ResearchStatus = "pending";
+  let dirtyProgress = 0;
+  let activeStatus: ResearchStatus = "pending";
+  let activeProgress = 0;
+  let stageStartedAt = Date.now();
+  let stageCalls = state.calls || 0;
+  let currentStage: ResearchStatus = "pending";
+
+  const logStage = (stage: ResearchStatus) => {
+    const now = Date.now();
+    console.info(
+      JSON.stringify({
+        event: "stage_timing",
+        stage: currentStage,
+        ms: now - stageStartedAt,
+        calls: (state.calls || 0) - stageCalls,
+        callsUsed: state.calls || 0,
+        callsBudget: maxProviderCalls,
+      }),
+    );
+    currentStage = stage;
+    stageStartedAt = now;
+    stageCalls = state.calls || 0;
+  };
+
+  const queueSave = (
+    status: ResearchStatus,
+    progress: number,
+    report?: string,
+  ) => {
+    saveQueue = saveQueue.then(async () => {
+      await check();
+      await deps.save(structuredClone(state), status, progress, report);
+    });
+
+    return saveQueue;
+  };
+
+  const flushDirty = () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+    }
+
+    if (!dirty) {
+      return saveQueue;
+    }
+
+    dirty = false;
+    return queueSave(dirtyStatus, dirtyProgress);
+  };
+
+  const markDirty = (status: ResearchStatus, progress: number) => {
+    dirty = true;
+    dirtyStatus = status;
+    dirtyProgress = progress;
+
+    if (!saveTimer) {
+      saveTimer = setTimeout(() => {
+        void flushDirty().catch(() => {
+          // The serialized queue retains the failure for the next hard flush.
+        });
+      }, 2500);
+    }
+
+    return Promise.resolve();
+  };
+
   const save = async (
     status: ResearchStatus,
     progress: number,
     report?: string,
   ) => {
-    await check();
-    await deps.save(state, status, progress, report);
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+    }
+
+    dirty = false;
+    if (status !== currentStage) logStage(status);
+    await queueSave(status, progress, report);
   };
 
-  const reserve = async (status: ResearchStatus, progress: number) => {
-    await check();
+  const reserve = async () => {
+    if (signal.aborted) {
+      throw new RunStopped("Run stopped");
+    }
+
+    if (Date.now() - record.startedAt.getTime() > researchTimeBudgetMs) {
+      throw new PermanentError(researchTimeBudgetMessage);
+    }
 
     if ((state.calls || 0) >= maxProviderCalls) {
       throw new PermanentError(
@@ -54,8 +137,8 @@ export async function runPipeline(
     }
 
     state.calls = (state.calls || 0) + 1;
-
-    await save(status, progress);
+    await markDirty(activeStatus, activeProgress);
+    await check();
   };
 
   const execute = async <T>(
@@ -63,9 +146,15 @@ export async function runPipeline(
     progress: number,
     action: () => Promise<T>,
   ) => {
-    await reserve(status, progress);
+    if (status !== currentStage) logStage(status);
+    activeStatus = status;
+    activeProgress = progress;
 
-    return withProviderCalls(() => reserve(status, progress), action);
+    try {
+      return await withProviderCalls(reserve, action);
+    } finally {
+      await save(status, progress);
+    }
   };
 
   if (!state.plan) {
@@ -107,7 +196,7 @@ export async function runPipeline(
         state.plan!,
         record.scope,
         signal,
-        () => save("searching", 35),
+        () => markDirty("searching", 35),
       ),
     );
     state.searchComplete = true;
@@ -210,21 +299,34 @@ export async function runPipeline(
 
   await save("analyzing", 55);
 
-  if (!state.searchReview && deps.reviewSearch) {
-    state.searchReview = await execute("analyzing", 56, () =>
-      deps.reviewSearch!(record.question, state.plan!, state.searches!, signal),
-    );
+  const reviewPromise =
+    !state.searchReview && deps.reviewSearch
+      ? execute("analyzing", 56, () =>
+          deps.reviewSearch!(
+            record.question,
+            state.plan!,
+            state.searches!,
+            signal,
+          ),
+        ).then((review) => {
+          state.searchReview = review;
+        })
+      : Promise.resolve();
+  const extractionPromise =
+    !state.analysis && deps.extractRecords
+      ? execute("analyzing", 60, () =>
+          deps.extractRecords!(
+            record.question,
+            state.sources!,
+            state,
+            signal,
+            () => markDirty("analyzing", 65),
+          ),
+        )
+      : Promise.resolve();
 
-    await save("analyzing", 58);
-  }
-
-  if (!state.analysis && deps.extractRecords) {
-    await execute("analyzing", 60, () =>
-      deps.extractRecords!(record.question, state.sources!, state, signal, () =>
-        save("analyzing", 65),
-      ),
-    );
-  }
+  await Promise.all([reviewPromise, extractionPromise]);
+  await save("analyzing", 65);
 
   if (!state.analysis) {
     state.analysis = await execute("analyzing", 60, () =>
@@ -238,12 +340,12 @@ export async function runPipeline(
           )
         : deps.analyzeQueries
           ? deps.analyzeQueries(record.question, state, signal, () =>
-              save("analyzing", 65),
+              markDirty("analyzing", 65),
             )
           : deps.analyze(record.question, state.sources!, signal),
     );
 
-    // Raw search review precedes evidence extraction and cannot establish final gaps.
+    // Search review identifies possible gaps but cannot establish final gaps.
     if (!deps.synthesize) {
       state.analysis.gaps.push(
         ...(state.searchReview?.missingEvidence ?? []),

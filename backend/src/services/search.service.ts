@@ -128,13 +128,14 @@ export const prepareSearchReview = (
   const entries = Object.entries(searches).slice(-10);
   const perQuery = Math.floor(10000 / Math.max(entries.length, 1)) - 1;
 
-  console.log("Search Summary for review is :");
+  const debug = process.env.DEBUG_SEARCH_REVIEW === "1";
 
   for (const [query, sources] of entries) {
-    console.log("query: ", query);
-    console.log("resultCount: ", sources.length);
-    console.log("sources: ");
-    sources.map((source) => loggingSource(source));
+    if (debug) {
+      console.log("query: ", query);
+      console.log("resultCount: ", sources.length);
+      for (const source of sources.slice(0, 3)) loggingSource(source);
+    }
 
     const summary: QuerySearchSummary = {
       query: query.slice(0, 300),

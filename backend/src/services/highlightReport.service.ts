@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { structured } from "../config/openRouterAI.js";
-import { selectSources } from "./evidence.service.js";
+import { canonicalUrl, selectSources } from "./evidence.service.js";
 import { renderReport } from "./report.service.js";
 import type { Analysis } from "../zodSchema/research.schema.js";
 import type { Checkpoint, Source } from "../types/research.js";
@@ -127,16 +127,28 @@ export async function composeHighlightReport(
 
 // Normalize URLs/IDs without truncating the query-specific highlights.
 export function highlightSources(results: Source[]): Source[] {
+  const highlightsByUrl = new Map<string, string[]>();
+
+  for (const result of results) {
+    let url: string;
+
+    try {
+      url = canonicalUrl(result.url);
+    } catch {
+      continue;
+    }
+
+    const highlights = highlightsByUrl.get(url) ?? [];
+    highlights.push(...result.highlights);
+    highlightsByUrl.set(url, highlights);
+  }
+
   const sources = selectSources(results);
 
   return sources.map((source) => ({
     ...source,
-    highlights: [
-      ...new Set(
-        results
-          .filter((result) => selectSources([result])[0]?.id === source.id)
-          .flatMap((result) => result.highlights),
-      ),
-    ].filter((text) => text.trim()),
+    highlights: [...new Set(highlightsByUrl.get(source.url) ?? [])].filter(
+      (text) => text.trim(),
+    ),
   }));
 }

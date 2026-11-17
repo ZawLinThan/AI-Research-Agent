@@ -185,9 +185,11 @@ export async function approveResearchPlan(
     ...existing.researchPlan,
     queries: plan.queries,
     plannedQueries: plan.queries.map((query, i) => ({
-      ...(existing.researchPlan?.plannedQueries?.find(
-        (q) => q.query === query,
-      ) ?? { informationNeed: query, entities: [] }),
+      ...(plan.plannedQueries?.[i] ??
+        existing.researchPlan?.plannedQueries?.[i] ?? {
+          informationNeed: query,
+          entities: [],
+        }),
       id: `Q${i + 1}`,
       query,
     })),
@@ -200,16 +202,24 @@ export async function approveResearchPlan(
   }
 
   if (approvalRequiresReview(plan.queries, existing.researchPlan?.queries)) {
-    const review = await reviewPlan(existing.question, plan);
-
-    if (!review.valid) {
-      throw new RequestError(
-        400,
-        review.revisionInstructions.join(" ") || "Edited plan failed review.",
-      );
+    try {
+      const review = await reviewPlan(existing.question, plan);
+      plan.reviews = [...(plan.reviews ?? []), review];
+      if (!review.valid) {
+        plan.warnings = [
+          ...new Set([
+            ...(plan.warnings ?? []),
+            ...review.issues,
+            ...review.revisionInstructions,
+          ]),
+        ];
+      }
+    } catch {
+      plan.warnings = [
+        ...(plan.warnings ?? []),
+        "Automatic review of edited queries was unavailable.",
+      ];
     }
-
-    plan.reviews = [...(plan.reviews ?? []), review];
   }
 
   const [updated] = await db

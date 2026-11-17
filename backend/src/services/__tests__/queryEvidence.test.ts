@@ -78,7 +78,7 @@ test("near-copy and semantic deduplication retain different measurements and opp
   const semantic = {
     ...source(2),
     highlights: [
-      "This publication explains participant selection, study methodology, and observed outcomes over the entire research period.",
+      "The full report explains the study design and the participants in careful detail, covering the research methods and observed outcomes across the complete observation period.",
     ],
   };
   const conflicting = {
@@ -405,7 +405,7 @@ test("full-source retrieval uses Exa contents and context windows remain verbati
   const s = source(0);
   t.mock.method(axios, "post", async (url: string, body: any, options: any) => {
     assert.equal(url, "https://api.exa.ai/contents");
-    assert.deepEqual(body, { ids: [s.url], text: { maxCharacters: 50000 } });
+    assert.deepEqual(body, { ids: [s.url], text: { maxCharacters: 15000 } });
     assert.ok(options.signal instanceof AbortSignal);
     return { data: { results: [{ url: s.url, text: "Full page body" }] } };
   });
@@ -929,4 +929,61 @@ test("exact quotes beyond the downstream limit still require model correction", 
     /required schema/,
   );
   assert.equal(calls, 2);
+});
+
+test("query phases overlap work while preserving merge order and failed summaries", async () => {
+  const sources = Array.from({ length: 6 }, (_, index) => source(index));
+  const searches = Object.fromEntries(
+    sources.map((item, index) => [`q${index}`, [item]]),
+  );
+  const state: Checkpoint = { sources, searches };
+  let active = 0;
+  let peak = 0;
+  const result = await analyzeQueryResults(
+    "Question",
+    state,
+    signal(),
+    async () => {},
+    {
+      deduplicate: async () => ({}),
+      summarize: async (_question, query, querySources) => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        active--;
+        if (query === "q2") throw new Error("model unavailable");
+        return {
+          ...emptySummary(),
+          findings: [
+            {
+              topic: query,
+              claim: query,
+              evidence: [
+                {
+                  sourceId: querySources[0].id,
+                  quote: querySources[0].highlights[0],
+                },
+              ],
+            },
+          ],
+        };
+      },
+      fetchContext: async () => "",
+      merge: async (summaries) => ({
+        findings: Object.values(summaries).flatMap(
+          (summary) => summary.findings,
+        ),
+        gaps: Object.values(summaries).flatMap(
+          (summary) => summary.unansweredQuestions,
+        ),
+        followUpQueries: [],
+      }),
+    },
+  );
+  assert.equal(peak, 4);
+  assert.deepEqual(
+    result.findings.map((finding) => finding.claim),
+    ["q0", "q1", "q3", "q4", "q5"],
+  );
+  assert.match(result.gaps[0], /Summary failed for query: q2/);
 });

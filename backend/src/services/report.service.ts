@@ -1,3 +1,4 @@
+import { mapConcurrent } from "../lib/mapConcurrent.js";
 import { createComparisonReportLayout } from "./comparisonReport.service.js";
 import {
   sourceOwner,
@@ -54,34 +55,47 @@ export async function verifyFindings(
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const supported = new Set<number>();
 
-  // Bound each verification request as findings become more detailed.
-  for (let offset = 0; offset < checked.findings.length; offset += 4) {
-    const batch = checked.findings.slice(offset, offset + 4);
-    const verdict = await structured(
-      'Review claims against quoted evidence. Return {"supported":[0,1]} containing ONLY zero-based indices within this batch of claims fully supported by their quoted evidence. Reject misleading interpretations, unsupported comparisons, causal leaps and stale claims framed as current. Reject the entire claim if any part is unsupported. Do not add claims. ' +
-        evidenceInterpretationRules,
-      {
-        question,
-        findings: batch.map((finding) => ({
-          ...finding,
-          evidence: finding.evidence.map((evidence) => ({
-            ...evidence,
-            sourceTitle: sourceById.get(evidence.sourceId)!.title.slice(0, 200),
-            sourceUrl: sourceById.get(evidence.sourceId)!.url,
-          })),
-        })),
-      },
-      z.object({ supported: z.array(z.number().int().nonnegative()).max(4) }),
-      signal,
-      800,
-    );
+  // Failed batches fail closed: their claims are omitted while other batches continue.
+  const batches = Array.from(
+    { length: Math.ceil(checked.findings.length / 10) },
+    (_, i) => i * 10,
+  );
 
-    for (const index of verdict.supported) {
-      if (index < batch.length) {
-        supported.add(offset + index);
+  await mapConcurrent(batches, 3, async (offset) => {
+    const batch = checked.findings.slice(offset, offset + 10);
+
+    try {
+      const verdict = await structured(
+        'Review claims against quoted evidence. Return {"supported":[0,1]} containing ONLY zero-based indices within this batch of claims fully supported by their quoted evidence. Reject misleading interpretations, unsupported comparisons, causal leaps and stale claims framed as current. Reject the entire claim if any part is unsupported. Do not add claims. ' +
+          evidenceInterpretationRules,
+        {
+          question,
+          findings: batch.map((finding) => ({
+            ...finding,
+            evidence: finding.evidence.map((evidence) => ({
+              ...evidence,
+              sourceTitle: sourceById
+                .get(evidence.sourceId)!
+                .title.slice(0, 200),
+              sourceUrl: sourceById.get(evidence.sourceId)!.url,
+            })),
+          })),
+        },
+        z.object({
+          supported: z.array(z.number().int().nonnegative()).max(10),
+        }),
+        signal,
+        800,
+      );
+
+      for (const index of verdict.supported) {
+        if (index < batch.length) supported.add(offset + index);
       }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      console.error("Finding verification batch failed:", offset, error);
     }
-  }
+  });
 
   const verified = filterAnalysisFindings(checked, (_, index) =>
     supported.has(index),
@@ -95,30 +109,42 @@ export async function verifyFindings(
   }
 
   if (verified.disagreements?.length) {
-    const retained: typeof verified.disagreements = [];
-
-    for (let offset = 0; offset < verified.disagreements.length; offset += 4) {
-      const disagreements = verified.disagreements.slice(offset, offset + 4);
+    const offsets = Array.from(
+      { length: Math.ceil(verified.disagreements.length / 10) },
+      (_, i) => i * 10,
+    );
+    const retainedBatches = await mapConcurrent(offsets, 3, async (offset) => {
+      const disagreements = verified.disagreements!.slice(offset, offset + 10);
       const referenced = new Set(
         disagreements.flatMap((item) => item.findingIndexes),
       );
-      const review = await structured(
-        'Return {"supported":[0]} with only zero-based indexes within this batch of genuine contradictions among the supplied disagreements. A contradiction must concern the same entity, metric, period, and basis. Different banks, different years, differences in performance, and absent data are not contradictions. Reject vague topic labels without opposing claims.',
-        {
-          findings: verified.findings.flatMap((finding, index) =>
-            referenced.has(index) ? [{ index, claim: finding.claim }] : [],
-          ),
-          disagreements,
-        },
-        z.object({ supported: z.array(z.number().int().nonnegative()).max(4) }),
-        signal,
-        500,
-      );
 
-      retained.push(
-        ...disagreements.filter((_, index) => review.supported.includes(index)),
-      );
-    }
+      try {
+        const review = await structured(
+          'Return {"supported":[0]} with only zero-based indexes within this batch of genuine contradictions among the supplied disagreements. A contradiction must concern the same entity, metric, period, and basis. Different banks, different years, differences in performance, and absent data are not contradictions. Reject vague topic labels without opposing claims.',
+          {
+            findings: verified.findings.flatMap((finding, index) =>
+              referenced.has(index) ? [{ index, claim: finding.claim }] : [],
+            ),
+            disagreements,
+          },
+          z.object({
+            supported: z.array(z.number().int().nonnegative()).max(10),
+          }),
+          signal,
+          500,
+        );
+
+        return disagreements.filter((_, index) =>
+          review.supported.includes(index),
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        console.error("Disagreement verification batch failed:", offset, error);
+        return [];
+      }
+    });
+    const retained = retainedBatches.flat();
 
     verified.disagreements = retained;
   }
@@ -298,7 +324,22 @@ export async function createReportLayout(
     );
     summary = revised.summary.replace(/\s+/g, " ").trim();
     overview = uniqueValid(revised.overview);
-    review = overview.length ? await reviewSummary() : { valid: false };
+    const evidenceIds = new Set(
+      state?.evidenceRecords?.map((record) => record.id) ?? [],
+    );
+    const validEvidence =
+      !state?.reportClaims ||
+      state.reportClaims.every(
+        (claim) =>
+          claim.evidenceIds.length > 0 &&
+          claim.evidenceIds.every((id) => evidenceIds.has(id)),
+      );
+    const validRepair =
+      overview.length > 0 &&
+      revised.overview.every((index) => validIndexes.has(index)) &&
+      validEvidence;
+    // This checks references only; it cannot prove the repaired prose is grounded.
+    review = validRepair ? { valid: true } : await reviewSummary();
 
     console.info(
       JSON.stringify({

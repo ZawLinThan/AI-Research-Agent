@@ -18,7 +18,7 @@ export async function fetchSourceContext(
       "https://api.exa.ai/contents",
       {
         ids: [canonicalUrl(source.url)],
-        text: { maxCharacters: 50000 },
+        text: { maxCharacters: 15000 },
       },
       {
         headers: { "x-api-key": requireExaKey() },

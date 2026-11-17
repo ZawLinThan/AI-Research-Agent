@@ -6,11 +6,6 @@ import { reviewSearch } from "../services/search.service.js";
 import { queuedSearch, closeSearchQueue } from "../queues/search.queue.js";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { cancelLostLocks, deferLostLock } from "../lib/workerLock.js";
-import {
-  summarizeHighlights,
-  findSummaryGaps,
-  composeHighlightReport,
-} from "../services/highlightReport.service.js";
 import "../lib/workerLoggingBootstrap.js";
 import { workerLogging } from "../lib/workerLogging.js";
 import {

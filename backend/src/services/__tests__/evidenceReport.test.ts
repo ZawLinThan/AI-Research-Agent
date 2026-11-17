@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { client } from "../../config/openRouterAI.js";
 import {
   extractEvidenceRecords,
@@ -139,6 +140,85 @@ test("provider-rejected oversized evidence can be normalized without another mod
   );
   assert.equal(calls, 1);
   assert.equal(result.length, 8);
+});
+
+test("forty sources extract with bounded concurrency, stable order, and retryable failures", async (t) => {
+  const sources = Array.from({ length: 40 }, (_, index): Source => ({
+    ...source,
+    id: `S${39 - index}`,
+    url: `https://example.com/results-${index}`,
+    highlights: [
+      `Bank A reported revenue of $${index + 1} billion in Q2 2026.`,
+    ],
+  }));
+  let active = 0;
+  let peak = 0;
+  let fail = true;
+  let calls = 0;
+  t.mock.method(client.chat.completions, "create", async (request: any) => {
+    const input = JSON.parse(request.messages[1].content);
+    const index = Number(input.sourceUrl.match(/results-(\d+)$/)[1]);
+    assert.ok(request.max_tokens <= 1400);
+    calls++;
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 12));
+    active--;
+    if (fail && index === 5) throw new Error("Source unavailable");
+    return response({
+      evidence: [
+        {
+          claim: `Bank A revenue was $${index + 1} billion.`,
+          quote: sources[index].highlights[0],
+          entity: "Bank A",
+          metric: "revenue",
+          period: "Q2 2026",
+          value: `$${index + 1} billion`,
+        },
+      ],
+    });
+  });
+  const state: Checkpoint = {};
+  let checkpoints = 0;
+  const started = performance.now();
+  const records = await extractEvidenceRecords(
+    "Bank A revenue",
+    sources,
+    state,
+    new AbortController().signal,
+    async () => {
+      checkpoints++;
+    },
+  );
+  const elapsed = performance.now() - started;
+
+  assert.equal(peak, 4);
+  assert.deepEqual(
+    records.map((record) => record.sourceUrl),
+    sources.filter((_, index) => index !== 5).map((item) => item.url),
+  );
+  assert.equal(state.extractedSourceIds?.length, 39);
+  assert.equal(checkpoints, 40);
+  assert.equal(state.evidenceRejections?.length, 1);
+  assert.ok(
+    elapsed < (40 * 12) / 2.5,
+    `Expected at least 2.5x speedup; took ${elapsed.toFixed(1)} ms`,
+  );
+
+  fail = false;
+  await extractEvidenceRecords(
+    "Bank A revenue",
+    sources,
+    state,
+    new AbortController().signal,
+    async () => {
+      checkpoints++;
+    },
+  );
+  assert.equal(calls, 41);
+  assert.equal(state.evidenceRecords?.length, 40);
+  assert.equal(state.evidenceRejections?.length, 0);
+  assert.equal(checkpoints, 41);
 });
 
 test("normalization preserves malformed overflow and never truncates factual text", async () => {
@@ -371,6 +451,7 @@ test("comparison synthesis sees all peers together and ignores invented local co
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
+    assert.ok(request.max_tokens <= 1500);
     const input = JSON.parse(request.messages[1].content);
     assert.deepEqual(
       input.evidence.map((e: any) => e.entity),
