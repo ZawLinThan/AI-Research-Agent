@@ -20,9 +20,22 @@ export type PipelineDeps = {
   synthesize?: typeof import("../services/evidenceReport.service.js").synthesizeEvidence;
   reviewSearch?: typeof import("../services/search.service.js").reviewSearch;
   highlights?: {
-    summarize: (question: string, query: string, sources: Source[], signal: AbortSignal) => Promise<{ summary: string }>;
-    gaps: (question: string, summaries: { query: string; summary: string }[], signal: AbortSignal) => Promise<{ gaps: string[] }>;
-    report: (question: string, state: Checkpoint, signal: AbortSignal) => Promise<string>;
+    summarize: (
+      question: string,
+      query: string,
+      sources: Source[],
+      signal: AbortSignal,
+    ) => Promise<{ summary: string }>;
+    gaps: (
+      question: string,
+      summaries: { query: string; summary: string }[],
+      signal: AbortSignal,
+    ) => Promise<{ gaps: string[] }>;
+    report: (
+      question: string,
+      state: Checkpoint,
+      signal: AbortSignal,
+    ) => Promise<string>;
   };
   save: (
     state: Checkpoint,

@@ -1,6 +1,7 @@
 import { reviewSearch, search } from "../services/search.service.js";
 import type { Source } from "../types/research.js";
 import type { ResearchPlan } from "../zodSchema/research.schema.js";
+
 export const searchForSources = async (
   searches: Record<string, Source[]>,
   question: string,
@@ -21,16 +22,27 @@ export const searchForSources = async (
     console.log("Searching for query: ", query);
 
     searches[query] = await deps.search(query, scope, signal);
+
     await checkpoint();
   };
 
   let next = 0;
   let saving = Promise.resolve();
   const originalCheckpoint = checkpoint;
-  checkpoint = () => { saving = saving.then(originalCheckpoint); return saving; };
-  await Promise.all(Array.from({ length: Math.min(3, plan.queries.length) }, async () => {
-    while (next < plan.queries.length) await execute(plan.queries[next++]);
-  }));
+
+  checkpoint = () => {
+    saving = saving.then(originalCheckpoint);
+
+    return saving;
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(3, plan.queries.length) }, async () => {
+      while (next < plan.queries.length) {
+        await execute(plan.queries[next++]);
+      }
+    }),
+  );
 
   return searches;
 };

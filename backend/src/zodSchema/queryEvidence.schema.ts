@@ -4,6 +4,7 @@ const evidence = z.object({
   sourceId: z.string().min(1),
   quote: z.string().min(15).max(1200),
 });
+
 export const querySummarySchema = z.object({
   findings: z
     .array(
@@ -34,7 +35,9 @@ export const querySummarySchema = z.object({
     // all of them rather than failing or silently dropping unresolved sources.
     .max(10),
 });
+
 export type QuerySummary = z.infer<typeof querySummarySchema>;
+
 export type EvidenceCheckpoint = {
   aliases?: Record<string, string>;
   summaries: Record<string, QuerySummary>;

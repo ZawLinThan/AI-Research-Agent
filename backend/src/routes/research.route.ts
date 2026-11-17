@@ -7,7 +7,9 @@ import {
   cancelResearchProject,
 } from "../controllers/research.controller.js";
 import { requireUser } from "../middleware/auth.js";
+
 const router = Router();
+
 router.use(requireUser);
 router.get("/", listResearchProjects);
 router.post("/", createResearch);

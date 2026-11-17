@@ -21,8 +21,11 @@ test("search uses auto retrieval and preserves source highlights", async () => {
     ]);
   } finally {
     call.mock.restore();
-    if (original === undefined) delete process.env.EXA_API_KEY;
-    else process.env.EXA_API_KEY = original;
+    if (original === undefined) {
+      delete process.env.EXA_API_KEY;
+    } else {
+      process.env.EXA_API_KEY = original;
+    }
   }
 });
 
@@ -45,8 +48,11 @@ test("extraction deduplicates URLs and preserves partial failure statuses", asyn
     ]);
   } finally {
     call.mock.restore();
-    if (original === undefined) delete process.env.EXA_API_KEY;
-    else process.env.EXA_API_KEY = original;
+    if (original === undefined) {
+      delete process.env.EXA_API_KEY;
+    } else {
+      process.env.EXA_API_KEY = original;
+    }
   }
 });
 
@@ -65,6 +71,8 @@ test("missing credentials fail clearly without network access", async () => {
   try {
     await assert.rejects(searchWeb("topic"), /Web search is not configured/);
   } finally {
-    if (original !== undefined) process.env.EXA_API_KEY = original;
+    if (original !== undefined) {
+      process.env.EXA_API_KEY = original;
+    }
   }
 });

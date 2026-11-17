@@ -61,8 +61,10 @@ test("unrecognized gap objects still trigger correction and fail validation", as
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
-    if (calls === 2)
+    if (calls === 2) {
       assert.match(request.messages[0].content, /previous attempt was invalid/);
+    }
+
     return response({ findings: [], gaps: [{ arbitrary: 42 }] });
   });
   await assert.rejects(
@@ -141,15 +143,27 @@ test("search review accepts verbose explanations without a correction request", 
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
     return response({
-      sufficient: false, relevanceScore: 0.5, coverageScore: 0.5,
+      sufficient: false,
+      relevanceScore: 0.5,
+      coverageScore: 0.5,
       sourceQualityScore: 0.5,
-      missingEvidence: Array.from({ length: 5 }, (_, i) => `${i}: ${"Missing comparable evidence. ".repeat(20)}`),
+      missingEvidence: Array.from(
+        { length: 5 },
+        (_, i) => `${i}: ${"Missing comparable evidence. ".repeat(20)}`,
+      ),
       weakAreas: ["Limited coverage. ".repeat(30)],
-      reason: "More evidence is needed to resolve the disagreement. ".repeat(20),
+      reason: "More evidence is needed to resolve the disagreement. ".repeat(
+        20,
+      ),
       followUpQueries: ["comparable evidence"],
     });
   });
-  const result = await reviewSearch("Compare companies", { queries: ["revenue"] }, {}, new AbortController().signal);
+  const result = await reviewSearch(
+    "Compare companies",
+    { queries: ["revenue"] },
+    {},
+    new AbortController().signal,
+  );
   assert.equal(calls, 1);
   assert.equal(result.missingEvidence.length, 3);
   assert.ok(result.missingEvidence.every((text) => text.length <= 200));

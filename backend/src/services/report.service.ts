@@ -1,3 +1,11 @@
+import { createComparisonReportLayout } from "./comparisonReport.service.js";
+import {
+  sourceOwner,
+  namedBanks,
+  metricKey,
+  periodKey,
+  growthConsistencyIssue,
+} from "../lib/evidenceIdentity.js";
 import { ModelOutputError } from "../lib/errors.js";
 import { z } from "zod";
 import type { Analysis, Source } from "../../../shared/research.js";
@@ -15,9 +23,37 @@ export async function verifyFindings(
   sources: Source[],
   signal?: AbortSignal,
 ) {
-  const checked = groundedFindings(analysis, sources);
+  const grounded = groundedFindings(analysis, sources);
+  const checked = filterAnalysisFindings(grounded, (finding) => {
+    if (growthConsistencyIssue(finding.claim)) {
+      return false;
+    }
+
+    const entities = namedBanks(finding.claim);
+
+    if (!entities.length) {
+      return true;
+    }
+
+    return finding.evidence.every((evidence) => {
+      const source = sources.find((s) => s.id === evidence.sourceId)!;
+      const quoted = namedBanks(evidence.quote);
+      const owner = sourceOwner(source.url, source.title);
+
+      if (quoted.length === 1 && !entities.includes(quoted[0]!)) {
+        return false;
+      }
+
+      return (
+        !owner ||
+        entities.includes(owner) ||
+        quoted.some((entity) => entities.includes(entity))
+      );
+    });
+  });
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const supported = new Set<number>();
+
   // Bound each verification request as findings become more detailed.
   for (let offset = 0; offset < checked.findings.length; offset += 4) {
     const batch = checked.findings.slice(offset, offset + 4);
@@ -39,20 +75,28 @@ export async function verifyFindings(
       signal,
       800,
     );
+
     for (const index of verdict.supported) {
-      if (index < batch.length) supported.add(offset + index);
+      if (index < batch.length) {
+        supported.add(offset + index);
+      }
     }
   }
+
   const verified = filterAnalysisFindings(checked, (_, index) =>
     supported.has(index),
   );
-  if (verified.findings.length < analysis.findings.length)
+
+  if (verified.findings.length < analysis.findings.length) {
     verified.gaps = [
       "Some claims were omitted because their evidence did not support the full interpretation.",
       ...verified.gaps,
     ].slice(0, 30);
+  }
+
   if (verified.disagreements?.length) {
     const retained: typeof verified.disagreements = [];
+
     for (let offset = 0; offset < verified.disagreements.length; offset += 4) {
       const disagreements = verified.disagreements.slice(offset, offset + 4);
       const referenced = new Set(
@@ -70,12 +114,15 @@ export async function verifyFindings(
         signal,
         500,
       );
+
       retained.push(
         ...disagreements.filter((_, index) => review.supported.includes(index)),
       );
     }
+
     verified.disagreements = retained;
   }
+
   return verified;
 }
 
@@ -98,6 +145,14 @@ export async function createReportLayout(
   signal?: AbortSignal,
   state?: Checkpoint,
 ): Promise<ReportLayout> {
+  if (
+    state?.plan?.brief?.answerShape === "comparison" &&
+    state.reportClaims &&
+    state.evidenceRecords
+  ) {
+    return createComparisonReportLayout(question, analysis, state, signal);
+  }
+
   // Merged topics are evidence organization, not a final editorial outline.
   // Arrange both legacy and per-query findings into a broad-to-specific report.
   const result = await structured(
@@ -121,11 +176,13 @@ export async function createReportLayout(
   const uniqueValid = (indexes: number[]) =>
     [...new Set(indexes)].filter((index) => validIndexes.has(index));
   const assigned = new Set<number>();
-  const sections = result.sections.flatMap(({ heading, findingIndexes }) => {
+  let sections = result.sections.flatMap(({ heading, findingIndexes }) => {
     const indexes = uniqueValid(findingIndexes).filter(
       (index) => !assigned.has(index),
     );
+
     indexes.forEach((index) => assigned.add(index));
+
     return indexes.length
       ? [
           {
@@ -136,19 +193,58 @@ export async function createReportLayout(
       : [];
   });
   const remaining = [...validIndexes].filter((index) => !assigned.has(index));
-  if (remaining.length)
+
+  if (remaining.length) {
     sections.push({
       heading: "Additional findings",
       findingIndexes: remaining,
     });
+  }
+
+  if (
+    state?.plan?.brief?.answerShape === "comparison" &&
+    state.reportClaims &&
+    state.evidenceRecords
+  ) {
+    const byEvidence = new Map(state.evidenceRecords.map((e) => [e.id, e]));
+    const metricSections = new Map<string, number[]>();
+
+    analysis.findings.forEach((finding, i) => {
+      const claim = state.reportClaims!.find((c) => c.text === finding.claim);
+      const evidence =
+        claim?.evidenceIds.map((id) => byEvidence.get(id)).filter((e) => !!e) ??
+        [];
+      const keys = [
+        ...new Set(
+          evidence.map(
+            (e) =>
+              `${metricKey(e.metric ?? "Other supported findings")} — ${periodKey(e.period ?? "Period unspecified")}`,
+          ),
+        ),
+      ];
+      const heading = keys.length === 1 ? keys[0]! : "Other supported findings";
+      const indexes = metricSections.get(heading) ?? [];
+
+      indexes.push(i);
+      metricSections.set(heading, indexes);
+    });
+
+    sections = [...metricSections].map(([heading, findingIndexes]) => ({
+      heading,
+      findingIndexes,
+    }));
+  }
 
   let overview = uniqueValid(result.overview);
-  if (!overview.length)
+
+  if (!overview.length) {
     throw new ModelOutputError(
       "The report summary has no valid supporting findings.",
       "schema_validation",
       [{ path: "overview", code: "invalid_reference" }],
     );
+  }
+
   let summary = result.summary.replace(/\s+/g, " ").trim();
   const reviewSummary = () =>
     structured(
@@ -174,9 +270,11 @@ export async function createReportLayout(
       600,
     );
   let review = await reviewSummary();
+
   console.info(
     JSON.stringify({ event: "report_summary_review", valid: review.valid }),
   );
+
   if (!review.valid) {
     const revised = await structured(
       'Repair only the opening summary and its supporting finding indexes using the review feedback. Return {"summary":"...","overview":[0]}. Use only verified findings. Every factual assertion must be supported by the listed indexes. Do not invent a broad comparison when evidence covers only one entity; clearly acknowledge insufficient coverage. Preserve dates, definitions, and uncertainty. Paraphrase supported findings without exaggeration. No citations in summary. ' +
@@ -201,6 +299,7 @@ export async function createReportLayout(
     summary = revised.summary.replace(/\s+/g, " ").trim();
     overview = uniqueValid(revised.overview);
     review = overview.length ? await reviewSummary() : { valid: false };
+
     console.info(
       JSON.stringify({
         event: "report_summary_revision_review",
@@ -208,6 +307,7 @@ export async function createReportLayout(
       }),
     );
   }
+
   if (!review.valid) {
     // Omit the rejected synthesis. Render exact already-verified claims instead,
     // and explicitly mark the answer incomplete rather than relaxing support.
@@ -263,6 +363,7 @@ export function renderReport(
     [...new Set(ids)].map((id) => `[${id}]`).join(" ");
   const finding = (index: number) => {
     const value = analysis.findings[index];
+
     return value
       ? `${value.claim} ${citations(value.evidence.map((e) => e.sourceId))}`
       : "";
@@ -272,7 +373,69 @@ export function renderReport(
     : analysis.findings.slice(0, 2).map((_, index) => index);
   const overview = layout?.summary
     ? `${layout.summary} ${citations(overviewIndexes.flatMap((index) => analysis.findings[index]?.evidence.map((e) => e.sourceId) ?? []))}`
-    : overviewIndexes.map(finding).filter(Boolean).join(" ");
+    : layout?.summaryOmitted
+      ? "The supported findings are grouped below by metric and reporting period."
+      : overviewIndexes.map(finding).filter(Boolean).join(" ");
+
+  if (layout?.comparison) {
+    const clean = (text: string) =>
+      text.replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
+    const headers = [
+      "Metric",
+      "Period",
+      "Basis",
+      ...layout.comparison.entities,
+    ];
+    const rows = layout.comparison.rows.map((row) => {
+      const cells = row.cells.map((cell) =>
+        cell.findingIndexes.length
+          ? [...new Set(cell.findingIndexes.map(finding).filter(Boolean))].join(
+              "; ",
+            )
+          : row.coveredEntities?.includes(cell.entity)
+            ? "Covered in the cited comparison below"
+            : "Not established",
+      );
+
+      return `| ${[row.metric, row.period, row.basis, ...cells].map(clean).join(" | ")} |`;
+    });
+    const matrix = `| ${headers.map(clean).join(" | ")} |\n| ${headers.map(() => "---").join(" | ")} |\n${rows.join("\n")}`;
+    const shared = layout.comparison.rows.flatMap((row) =>
+      row.sharedFindingIndexes.map(
+        (index) => `- ${row.metric} (${row.period}): ${finding(index)}`,
+      ),
+    );
+    const usedIds = new Set(
+      layout.comparison.rows
+        .flatMap((row) => [
+          ...row.cells.flatMap((cell) => cell.findingIndexes),
+          ...row.sharedFindingIndexes,
+        ])
+        .flatMap(
+          (index) =>
+            analysis.findings[index]?.evidence.map((e) => e.sourceId) ?? [],
+        ),
+    );
+    const introIds = layout.overview.flatMap(
+      (index) =>
+        analysis.findings[index]?.evidence.map((e) => e.sourceId) ?? [],
+    );
+
+    introIds.forEach((id) => usedIds.add(id));
+
+    const intro = layout.summary
+      ? `${layout.summary}${introIds.length ? ` ${citations(introIds)}` : ""}`
+      : "";
+    const gaps = [...new Set(layout.limitations ?? [])];
+    return `# Question: ${question}\n\nResearch as of ${layout.comparison.currentDate}.\n\n${intro}\n\n## Comparison by metric and reporting period\n\n${matrix}${shared.length ? `\n\n## Supported comparisons\n\n${shared.join("\n")}` : ""}${gaps.length ? `\n\n## Evidence gaps\n\n${gaps.map((gap) => `- ${gap}`).join("\n")}` : ""}\n\n## Sources\n\n${sources
+      .filter((source) => usedIds.has(source.id))
+      .map(
+        (source) =>
+          `[${source.id}] ${source.title}\n${source.url}\nRetrieved: ${source.retrievedAt}`,
+      )
+      .join("\n\n")}`;
+  }
+
   const used = new Set<number>();
   const sections = (
     layout?.sections ?? [
@@ -287,11 +450,14 @@ export function renderReport(
         .filter((index) => !used.has(index))
         .map((index) => {
           used.add(index);
+
           const text = finding(index);
+
           return text ? `${summary ? "  " : ""}- ${text}` : "";
         })
         .filter(Boolean)
         .join("\n");
+
       return summary
         ? `## Query ${sectionIndex + 1}: ${heading}\n\n- ${summary.replace(/\s+/g, " ")}${bullets ? `\n${bullets}` : ""}`
         : bullets
@@ -300,6 +466,7 @@ export function renderReport(
     })
     .filter(Boolean)
     .join("\n\n");
+
   const competing = (analysis.disagreements ?? [])
     .map((disagreement) => {
       const ids = disagreement.findingIndexes.flatMap(
@@ -309,6 +476,7 @@ export function renderReport(
       const claims = disagreement.findingIndexes
         .map((index) => analysis.findings[index]?.claim)
         .filter(Boolean);
+
       return `- ${disagreement.topic}: ${claims.join(" / ")} ${citations(ids)}`;
     })
     .join("\n");
@@ -319,9 +487,11 @@ export function renderReport(
         .filter(Boolean),
     ),
   ];
+
   limitations.push(
     "Findings are based on retrieved source excerpts; sources may use different definitions, measures, or time periods.",
   );
+
   return `# Question: ${question}\n\n${layout?.summaryOmitted ? "Partial answer: the broader synthesis could not be validated. The findings below are supported by the cited evidence.\n\n" : ""}- ${overview}\n\n${sections}${competing ? `\n\n## Competing evidence\n\n${competing}` : ""}\n\n## Limitations and open questions\n\n${limitations.map((g) => `- ${g}`).join("\n")}\n\n## Sources\n\n${sources
     .filter((s) =>
       analysis.findings.some((f) =>

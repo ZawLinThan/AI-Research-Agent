@@ -63,9 +63,20 @@ export const researchSources = pgTable(
     uniqueIndex("research_source_project_id_idx").on(t.projectId, t.id),
   ],
 );
-export const researchStages = pgTable("research_stages", {
-  projectId: uuid("project_id").notNull().references(() => researchProjects.id, { onDelete: "cascade" }),
-  stage: text("stage").notNull(),
-  payload: jsonb("payload").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-}, t => [primaryKey({ columns: [t.projectId, t.stage] })]);
+
+export const researchStages = pgTable(
+  "research_stages",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => researchProjects.id, { onDelete: "cascade" }),
+    stage: text("stage").notNull(),
+    payload: jsonb("payload").notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.stage] })],
+);

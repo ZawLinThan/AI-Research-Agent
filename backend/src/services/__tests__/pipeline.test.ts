@@ -57,7 +57,10 @@ function fixture() {
     plan: async () => ({ queries: ["q1", "q2"] }),
     search: async (searches, _question, plan, _scope, _signal, checkpoint) => {
       for (const query of plan.queries) {
-        if (searches[query]) continue;
+        if (searches[query]) {
+          continue;
+        }
+
         searchCalls.push(query);
         searches[query] = [source];
         await checkpoint();
@@ -75,7 +78,10 @@ test("complete a cited report only after verification", async () => {
   const save = f.deps.save;
   f.deps.save = async (s, status, p, text) => {
     await save(s, status, p, text);
-    if (text) report = text;
+
+    if (text) {
+      report = text;
+    }
   };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.equal(f.states.at(-1), "completed");
@@ -114,7 +120,9 @@ test("resume from a persisted search checkpoint after provider failure", async (
 test("cancellation prevents completed writes", async () => {
   const f = fixture();
   f.deps.check = async () => {
-    if (f.record.checkpoint.plan) throw new RunStopped("cancelled");
+    if (f.record.checkpoint.plan) {
+      throw new RunStopped("cancelled");
+    }
   };
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
@@ -207,7 +215,9 @@ test("deep research can finish with all review rounds and model corrections", as
   const f = fixture();
   f.record.depth = "Deep research";
   const calls = async (count: number) => {
-    for (let i = 0; i < count; i++) await beforeProviderCall();
+    for (let i = 0; i < count; i++) {
+      await beforeProviderCall();
+    }
   };
   f.deps.plan = async () => {
     await calls(12); // Initial plan, two revisions, three reviews, each corrected once.
@@ -256,19 +266,36 @@ test("planning pauses and retries never search before approval", async () => {
   assert.equal(f.states.at(-1), "awaiting_approval");
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.deepEqual(f.searchCalls, []);
-  f.record.checkpoint = { plan: { queries: ["edited query"] }, planApproved: true };
+  f.record.checkpoint = {
+    plan: { queries: ["edited query"] },
+    planApproved: true,
+  };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.deepEqual(f.searchCalls, ["edited query"]);
   assert.equal(f.states.at(-1), "completed");
 });
 
 test("search executes only approved queries without automatic follow-ups", async () => {
-  const { searchForSources } = await import("../../pipeline/search.pipeline.js");
+  const { searchForSources } =
+    await import("../../pipeline/search.pipeline.js");
   const searched: string[] = [];
-  await searchForSources({}, "question", { queries: ["approved"] }, "Web", new AbortController().signal, async () => {}, {
-    search: async query => { searched.push(query); return [source]; },
-    review: async () => { throw new Error("Must not generate unapproved queries"); },
-  });
+  await searchForSources(
+    {},
+    "question",
+    { queries: ["approved"] },
+    "Web",
+    new AbortController().signal,
+    async () => {},
+    {
+      search: async (query) => {
+        searched.push(query);
+        return [source];
+      },
+      review: async () => {
+        throw new Error("Must not generate unapproved queries");
+      },
+    },
+  );
   assert.deepEqual(searched, ["approved"]);
 });
 
@@ -300,7 +327,12 @@ test("an omitted unsupported summary is checkpointed and not regenerated on resu
   let presentations = 0;
   f.deps.present = async () => {
     presentations++;
-    return { summaryOmitted: true, overview: [0], sections: [{ heading: "Supported findings", findingIndexes: [0] }], limitations: ["A complete answer could not be validated."] };
+    return {
+      summaryOmitted: true,
+      overview: [0],
+      sections: [{ heading: "Supported findings", findingIndexes: [0] }],
+      limitations: ["A complete answer could not be validated."],
+    };
   };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.equal(f.record.checkpoint.reportLayout?.summaryOmitted, true);

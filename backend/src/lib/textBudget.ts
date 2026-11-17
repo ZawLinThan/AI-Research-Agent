@@ -5,9 +5,14 @@ export function truncateUtf8(text: string, maxBytes: number): string {
     end = 0;
   for (const char of text) {
     const size = Buffer.byteLength(char);
-    if (bytes + size > maxBytes) break;
+
+    if (bytes + size > maxBytes) {
+      break;
+    }
+
     bytes += size;
     end += char.length;
   }
+
   return text.slice(0, end);
 }

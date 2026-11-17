@@ -141,25 +141,58 @@ test("each summary considers all ten results and validates exact source quotes",
   );
   assert.equal(summary.findings[0].evidence[0].quote, sources[0].highlights[0]);
   invalid = true;
-  const unsupported = await summarizeQuery("Question", "methods", sources, signal());
+  const unsupported = await summarizeQuery(
+    "Question",
+    "methods",
+    sources,
+    signal(),
+  );
   assert.deepEqual(unsupported.findings, []);
-  assert.match(unsupported.unansweredQuestions[0], /quotations could not be verified/);
+  assert.match(
+    unsupported.unansweredQuestions[0],
+    /quotations could not be verified/,
+  );
   assert.equal(calls, 2);
 });
 
 test("unverified claims are omitted entirely and disagreement indexes are remapped", async (t) => {
   const sources = [source(0), source(1)];
-  const evidence = sources.map((s) => ({ sourceId: s.id, quote: s.highlights[0] }));
+  const evidence = sources.map((s) => ({
+    sourceId: s.id,
+    quote: s.highlights[0],
+  }));
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
     return response({
       ...emptySummary(),
       findings: [
-        { topic: "Methods", claim: "Unsupported compound claim", evidence: [evidence[0], { ...evidence[1], quote: "This quotation was invented by the model." }] },
-        { topic: "Methods", claim: "First verified finding", evidence: [evidence[0]] },
-        { topic: "Methods", claim: "Second verified finding", evidence: [evidence[1]] },
-        { topic: "Methods", claim: "Wrong source", evidence: [{ ...evidence[0], sourceId: "unknown" }] },
+        {
+          topic: "Methods",
+          claim: "Unsupported compound claim",
+          evidence: [
+            evidence[0],
+            {
+              ...evidence[1],
+              quote: "This quotation was invented by the model.",
+            },
+          ],
+        },
+        {
+          topic: "Methods",
+          claim: "First verified finding",
+          evidence: [evidence[0]],
+        },
+        {
+          topic: "Methods",
+          claim: "Second verified finding",
+          evidence: [evidence[1]],
+        },
+        {
+          topic: "Methods",
+          claim: "Wrong source",
+          evidence: [{ ...evidence[0], sourceId: "unknown" }],
+        },
       ],
       disagreements: [
         { topic: "Retained conflict", findingIndexes: [1, 2] },
@@ -169,8 +202,13 @@ test("unverified claims are omitted entirely and disagreement indexes are remapp
   });
   const result = await summarizeQuery("Question", "methods", sources, signal());
   assert.equal(calls, 1);
-  assert.deepEqual(result.findings.map((f) => f.claim), ["First verified finding", "Second verified finding"]);
-  assert.deepEqual(result.disagreements, [{ topic: "Retained conflict", findingIndexes: [0, 1] }]);
+  assert.deepEqual(
+    result.findings.map((f) => f.claim),
+    ["First verified finding", "Second verified finding"],
+  );
+  assert.deepEqual(result.disagreements, [
+    { topic: "Retained conflict", findingIndexes: [0, 1] },
+  ]);
   assert.match(result.unansweredQuestions[0], /omitted/);
 });
 
@@ -183,8 +221,23 @@ test("incomplete disagreement references do not block evidence recovery", async 
     return response({
       ...emptySummary(),
       findings: [
-        { topic: "Methods", claim: "Verified finding", evidence: [{ sourceId: s.id, quote: s.highlights[0] }] },
-        { topic: "Methods", claim: "Another finding", evidence: [{ sourceId: s.id, quote: unsupported ? "This quotation was invented by the model." : s.highlights[0] }] },
+        {
+          topic: "Methods",
+          claim: "Verified finding",
+          evidence: [{ sourceId: s.id, quote: s.highlights[0] }],
+        },
+        {
+          topic: "Methods",
+          claim: "Another finding",
+          evidence: [
+            {
+              sourceId: s.id,
+              quote: unsupported
+                ? "This quotation was invented by the model."
+                : s.highlights[0],
+            },
+          ],
+        },
       ],
       disagreements: [
         { topic: "Incomplete", findingIndexes: [1] },
@@ -196,7 +249,10 @@ test("incomplete disagreement references do not block evidence recovery", async 
   const recovered = await summarizeQuery("Question", "methods", [s], signal());
   assert.equal(recovered.findings.length, 1);
   assert.deepEqual(recovered.disagreements, []);
-  assert.match(recovered.unansweredQuestions[0], /quotations could not be verified/);
+  assert.match(
+    recovered.unansweredQuestions[0],
+    /quotations could not be verified/,
+  );
   unsupported = false;
   const grounded = await summarizeQuery("Question", "methods", [s], signal());
   assert.equal(grounded.findings.length, 2);
@@ -280,13 +336,15 @@ test("full-text context is fetched only when requested, checkpointed, and reused
       contexts?: Record<string, string[]>,
     ) => {
       summaries++;
-      if (!contexts)
+      if (!contexts) {
         return {
           ...emptySummary(),
           needsContext: [
             { sourceId: s.id, reason: "Need the full methodology." },
           ],
         };
+      }
+
       assert.ok(contexts[s.id].some((text) => text.includes(quote)));
       return {
         ...emptySummary(),
@@ -304,7 +362,10 @@ test("full-text context is fetched only when requested, checkpointed, and reused
       return quote;
     },
     merge: async (summaries: Record<string, QuerySummary>) => {
-      if (++merges === 1) throw new Error("temporary merge failure");
+      if (++merges === 1) {
+        throw new Error("temporary merge failure");
+      }
+
       return {
         findings: summaries.query.findings,
         gaps: [],
@@ -388,11 +449,14 @@ test("six query summaries produce a verified report with more than ten cited sou
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     const instruction = request.messages[0].content;
     const input = JSON.parse(request.messages[1].content);
-    if (instruction.startsWith("Identify semantically"))
+    if (instruction.startsWith("Identify semantically")) {
       return response({ duplicates: [] });
+    }
+
     if (instruction.startsWith("Analyze ALL")) {
       summaryCalls++;
       assert.equal(input.sources.length, 10);
+
       return response({
         ...emptySummary(),
         findings: input.sources.slice(0, 4).map((s: any, i: number) => ({
@@ -402,7 +466,7 @@ test("six query summaries produce a verified report with more than ten cited sou
         })),
       });
     }
-    if (instruction.startsWith("Merge findings"))
+    if (instruction.startsWith("Merge findings")) {
       return response({
         topics: queries.map((heading, i) => ({
           heading,
@@ -410,23 +474,35 @@ test("six query summaries produce a verified report with more than ten cited sou
         })),
         disagreements: [],
       });
-    if (instruction.startsWith("Review claims"))
+    }
+
+    if (instruction.startsWith("Review claims")) {
       return response({
         supported: input.findings.map((_: unknown, i: number) => i),
       });
-    if (instruction.startsWith("Write a research report"))
+    }
+
+    if (instruction.startsWith("Write a research report")) {
       return response({
         summary:
           "The studies provide complementary accounts of research methods across several topics.",
         overview: [0, 4, 8, 12, 16, 20],
         sections: input.topics,
       });
-    if (instruction.startsWith("Check this opening"))
+    }
+
+    if (instruction.startsWith("Check this opening")) {
       return response({ valid: true });
-    if (instruction.startsWith("Summarize the verified evidence"))
+    }
+
+    if (instruction.startsWith("Summarize the verified evidence")) {
       return response({ summary: `Summary for ${input.query}.` });
-    if (instruction.startsWith("Answer the original question"))
+    }
+
+    if (instruction.startsWith("Answer the original question")) {
       return response({ summary: "Overall synthesis of the query summaries." });
+    }
+
     throw new Error("Unexpected model request");
   });
   await runPipeline(
@@ -435,7 +511,10 @@ test("six query summaries produce a verified report with more than ten cited sou
       check: async () => {},
       save: async (state, _status, _progress, text) => {
         record.checkpoint = structuredClone(state);
-        if (text) report = text;
+
+        if (text) {
+          report = text;
+        }
       },
       plan: async () => ({ queries }),
       search: async () => searches,
@@ -449,7 +528,9 @@ test("six query summaries produce a verified report with more than ten cited sou
     signal(),
   );
   assert.match(report, /The studies provide complementary accounts/);
-  for (const query of queries) assert.ok(report.includes(`## ${query}`));
+  for (const query of queries) {
+    assert.ok(report.includes(`## ${query}`));
+  }
   assert.equal(summaryCalls, 6);
   assert.equal(Object.keys(record.checkpoint.evidence!.summaries).length, 6);
   assert.equal(record.checkpoint.sources?.length, 60);
@@ -461,7 +542,9 @@ test("six query summaries produce a verified report with more than ten cited sou
     ),
   );
   assert.equal(citedIds.size, 24);
-  for (const id of citedIds) assert.ok(report.includes(`[${id}]`));
+  for (const id of citedIds) {
+    assert.ok(report.includes(`[${id}]`));
+  }
 });
 
 test("a shared URL retains query-specific excerpts and does not misattribute duplicate URLs", async () => {
@@ -557,7 +640,12 @@ test("ten full result excerpts leave room for a correction within the default to
   const seen = new Map<string, string[]>();
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     const input = JSON.parse(request.messages[1].content);
-    for (const source of input.sources) seen.set(source.sourceId, [...(seen.get(source.sourceId) ?? []), ...source.excerpts]);
+    for (const source of input.sources) {
+      seen.set(source.sourceId, [
+        ...(seen.get(source.sourceId) ?? []),
+        ...source.excerpts,
+      ]);
+    }
     const estimated =
       Math.ceil(Buffer.byteLength(JSON.stringify(request)) / 3) +
       request.max_tokens * 2;
@@ -573,7 +661,9 @@ test("ten full result excerpts leave room for a correction within the default to
     sources,
     signal(),
   );
-  for (const source of sources) assert.equal(seen.get(source.id)?.join(""), source.highlights.join(""));
+  for (const source of sources) {
+    assert.equal(seen.get(source.id)?.join(""), source.highlights.join(""));
+  }
 });
 
 test("non-English excerpts stay within byte budgets and remain exact substrings", async (t) => {
@@ -593,9 +683,9 @@ test("non-English excerpts stay within byte budgets and remain exact substrings"
         8000,
     );
     for (const supplied of input.sources) {
-      const original = sources.find(s => s.id === supplied.sourceId)!;
+      const original = sources.find((s) => s.id === supplied.sourceId)!;
       for (const excerpt of supplied.excerpts) {
-        assert.ok(original.highlights.some(h => h.includes(excerpt)));
+        assert.ok(original.highlights.some((h) => h.includes(excerpt)));
         assert.ok(!excerpt.includes("�"));
       }
     }
@@ -609,7 +699,6 @@ test("non-English excerpts stay within byte budgets and remain exact substrings"
   );
 });
 
-
 test("verbose summary metadata normalizes before grounding and preserves context requests", async (t) => {
   const sources = [source(0), source(1), source(2)];
   let calls = 0;
@@ -617,12 +706,31 @@ test("verbose summary metadata normalizes before grounding and preserves context
     calls++;
     return response({
       findings: sources.map((s, i) => ({
-        topic: "Results", claim: `Finding ${i}`,
-        evidence: [{ sourceId: s.id, quote: i === 2 ? "An invented quotation without support." : s.highlights[0] }],
+        topic: "Results",
+        claim: `Finding ${i}`,
+        evidence: [
+          {
+            sourceId: s.id,
+            quote:
+              i === 2
+                ? "An invented quotation without support."
+                : s.highlights[0],
+          },
+        ],
       })),
-      unansweredQuestions: [{ question: "Which period?", reason: "Dates need checking." }],
-      needsContext: sources.map((s) => ({ sourceId: s.id, reason: "More context is required. ".repeat(30) })),
-      disagreements: [{ topic: "Different reporting periods. ".repeat(20), findingIndexes: [0, 1] }],
+      unansweredQuestions: [
+        { question: "Which period?", reason: "Dates need checking." },
+      ],
+      needsContext: sources.map((s) => ({
+        sourceId: s.id,
+        reason: "More context is required. ".repeat(30),
+      })),
+      disagreements: [
+        {
+          topic: "Different reporting periods. ".repeat(20),
+          findingIndexes: [0, 1],
+        },
+      ],
     });
   });
   const result = await summarizeQuery("Question", "metrics", sources, signal());
@@ -631,7 +739,9 @@ test("verbose summary metadata normalizes before grounding and preserves context
   assert.equal(result.needsContext.length, 3);
   assert.ok(result.needsContext.every((r) => r.reason.length <= 200));
   assert.ok(result.disagreements[0].topic.length <= 100);
-  assert.ok(result.unansweredQuestions.includes("Which period? Dates need checking."));
+  assert.ok(
+    result.unansweredQuestions.includes("Which period? Dates need checking."),
+  );
 });
 
 test("query summaries retry truncation with a larger reserved output allowance", async (t) => {
@@ -639,31 +749,64 @@ test("query summaries retry truncation with a larger reserved output allowance",
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
     assert.equal(request.max_tokens, calls === 1 ? 2400 : 4800);
-    if (calls === 1) return { choices: [{ finish_reason: "length", message: { content: '{"findings":[' } }] };
+    if (calls === 1) {
+      return {
+        choices: [
+          { finish_reason: "length", message: { content: '{"findings":[' } },
+        ],
+      };
+    }
+
     return response(emptySummary());
   });
-  assert.deepEqual(await summarizeQuery("Question", "metrics", [source(0)], signal()), emptySummary());
+  assert.deepEqual(
+    await summarizeQuery("Question", "metrics", [source(0)], signal()),
+    emptySummary(),
+  );
   assert.equal(calls, 2);
 });
 
 test("query summary normalization does not coerce arbitrary question objects", async (t) => {
-  t.mock.method(client.chat.completions, "create", async () => response({
-    ...emptySummary(), unansweredQuestions: [{ question: 42 }],
-  }));
-  await assert.rejects(summarizeQuery("Question", "metrics", [source(0)], signal()), /required schema/);
+  t.mock.method(client.chat.completions, "create", async () =>
+    response({
+      ...emptySummary(),
+      unansweredQuestions: [{ question: 42 }],
+    }),
+  );
+  await assert.rejects(
+    summarizeQuery("Question", "metrics", [source(0)], signal()),
+    /required schema/,
+  );
 });
 
 test("text-only structured unanswered questions normalize in one request", async (t) => {
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
-    return response({ ...emptySummary(), unansweredQuestions: [
-      { topic: "Revenue", question: "Are periods comparable?", missingData: ["Quarter dates", "Currency basis"] },
-      ["Which entity?", "Consolidated or subsidiary?"],
-      { question: { text: "Which measure?", qualification: "Definitions differ." } },
-    ] });
+    return response({
+      ...emptySummary(),
+      unansweredQuestions: [
+        {
+          topic: "Revenue",
+          question: "Are periods comparable?",
+          missingData: ["Quarter dates", "Currency basis"],
+        },
+        ["Which entity?", "Consolidated or subsidiary?"],
+        {
+          question: {
+            text: "Which measure?",
+            qualification: "Definitions differ.",
+          },
+        },
+      ],
+    });
   });
-  const result = await summarizeQuery("Question", "metrics", [source(0)], signal());
+  const result = await summarizeQuery(
+    "Question",
+    "metrics",
+    [source(0)],
+    signal(),
+  );
   assert.equal(calls, 1);
   assert.deepEqual(result.unansweredQuestions, [
     "topic: Revenue; question: Are periods comparable?; missingData: Quarter dates; Currency basis",
@@ -674,38 +817,92 @@ test("text-only structured unanswered questions normalize in one request", async
 });
 
 test("question normalization rejects nontext leaves and leaves claims and quotes unchanged", async () => {
-  const { normalizeQuerySummary } = await import("../../lib/modelOutputNormalization.js");
-  const { querySummarySchema } = await import("../../zodSchema/queryEvidence.schema.js");
-  for (const item of [null, 42, true, {}, [], { question: "Which period?", detail: null }, { details: ["A note", 42] }]) {
-    assert.equal(querySummarySchema.safeParse(normalizeQuerySummary({ ...emptySummary(), unansweredQuestions: [item] })).success, false);
+  const { normalizeQuerySummary } =
+    await import("../../lib/modelOutputNormalization.js");
+  const { querySummarySchema } =
+    await import("../../zodSchema/queryEvidence.schema.js");
+  for (const item of [
+    null,
+    42,
+    true,
+    {},
+    [],
+    { question: "Which period?", detail: null },
+    { details: ["A note", 42] },
+  ]) {
+    assert.equal(
+      querySummarySchema.safeParse(
+        normalizeQuerySummary({
+          ...emptySummary(),
+          unansweredQuestions: [item],
+        }),
+      ).success,
+      false,
+    );
   }
-  const findings = [{ topic: "Metrics", claim: "x".repeat(301), evidence: [{ sourceId: "S1", quote: "y".repeat(1201) }] }];
-  const normalized = normalizeQuerySummary({ ...emptySummary(), findings }) as any;
+  const findings = [
+    {
+      topic: "Metrics",
+      claim: "x".repeat(301),
+      evidence: [{ sourceId: "S1", quote: "y".repeat(1201) }],
+    },
+  ];
+  const normalized = normalizeQuerySummary({
+    ...emptySummary(),
+    findings,
+  }) as any;
   assert.deepEqual(normalized.findings, findings);
   assert.equal(querySummarySchema.safeParse(normalized).success, false);
 });
 
 test("long exact quotes survive unchanged while oversized invented evidence drops its whole claim", async (t) => {
-  const quote = "The study reports a measured result with important qualifications. ".repeat(9);
+  const quote =
+    "The study reports a measured result with important qualifications. ".repeat(
+      9,
+    );
   assert.ok(quote.length > 450 && quote.length < 1200);
   const s = { ...source(0), highlights: [quote] };
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
-    return response({ ...emptySummary(), findings: [
-      { topic: "Results", claim: "A supported detail.", evidence: [{ sourceId: s.id, quote }] },
-      { topic: "Results", claim: "Unsupported compound claim.", evidence: [
-        { sourceId: s.id, quote },
-        { sourceId: s.id, quote: "An invented passage. ".repeat(80) },
-      ] },
-      { topic: "Results", claim: "Another supported detail.", evidence: [{ sourceId: s.id, quote }] },
-    ], disagreements: [{ topic: "Retained", findingIndexes: [0, 2] }, { topic: "Removed", findingIndexes: [0, 1] }] });
+    return response({
+      ...emptySummary(),
+      findings: [
+        {
+          topic: "Results",
+          claim: "A supported detail.",
+          evidence: [{ sourceId: s.id, quote }],
+        },
+        {
+          topic: "Results",
+          claim: "Unsupported compound claim.",
+          evidence: [
+            { sourceId: s.id, quote },
+            { sourceId: s.id, quote: "An invented passage. ".repeat(80) },
+          ],
+        },
+        {
+          topic: "Results",
+          claim: "Another supported detail.",
+          evidence: [{ sourceId: s.id, quote }],
+        },
+      ],
+      disagreements: [
+        { topic: "Retained", findingIndexes: [0, 2] },
+        { topic: "Removed", findingIndexes: [0, 1] },
+      ],
+    });
   });
   const result = await summarizeQuery("Question", "results", [s], signal());
   assert.equal(calls, 1);
-  assert.deepEqual(result.findings.map(f => f.claim), ["A supported detail.", "Another supported detail."]);
-  assert.ok(result.findings.every(f => f.evidence[0].quote === quote));
-  assert.deepEqual(result.disagreements, [{ topic: "Retained", findingIndexes: [0, 1] }]);
+  assert.deepEqual(
+    result.findings.map((f) => f.claim),
+    ["A supported detail.", "Another supported detail."],
+  );
+  assert.ok(result.findings.every((f) => f.evidence[0].quote === quote));
+  assert.deepEqual(result.disagreements, [
+    { topic: "Retained", findingIndexes: [0, 1] },
+  ]);
   assert.match(result.unansweredQuestions[0], /omitted/);
 });
 
@@ -716,8 +913,20 @@ test("exact quotes beyond the downstream limit still require model correction", 
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
-    return response({ ...emptySummary(), findings: [{ topic: "Results", claim: "A detail.", evidence: [{ sourceId: s.id, quote }] }] });
+    return response({
+      ...emptySummary(),
+      findings: [
+        {
+          topic: "Results",
+          claim: "A detail.",
+          evidence: [{ sourceId: s.id, quote }],
+        },
+      ],
+    });
   });
-  await assert.rejects(summarizeQuery("Question", "results", [s], signal()), /required schema/);
+  await assert.rejects(
+    summarizeQuery("Question", "results", [s], signal()),
+    /required schema/,
+  );
   assert.equal(calls, 2);
 });

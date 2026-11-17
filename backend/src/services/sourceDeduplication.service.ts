@@ -8,7 +8,9 @@ const words = (s: string) =>
     .toLowerCase()
     .normalize("NFKC")
     .match(/[\p{L}\p{N}%]+/gu) ?? [];
+
 const text = (s: Source) => s.highlights.join(" ");
+
 // Avoid treating different measurements or opposing conclusions as copies.
 export function compatibleFacts(a: string, b: string) {
   const signature = (value: string) =>
@@ -23,16 +25,21 @@ export function compatibleFacts(a: string, b: string) {
     ]
       .sort()
       .join("|");
+
   return signature(a) === signature(b);
 }
+
 export function nearIdentical(a: Source, b: Source) {
   const left = words(text(a)),
     right = words(text(b));
+
   if (
     Math.min(left.length, right.length) < 20 ||
     !compatibleFacts(text(a), text(b))
-  )
+  ) {
     return false;
+  }
+
   const shingles = (tokens: string[]) =>
     new Set(
       tokens.slice(0, -3).map((_, i) => tokens.slice(i, i + 4).join(" ")),
@@ -40,6 +47,7 @@ export function nearIdentical(a: Source, b: Source) {
   const x = shingles(left),
     y = shingles(right);
   const common = [...x].filter((v) => y.has(v)).length;
+
   return common / (x.size + y.size - common) >= 0.9;
 }
 
@@ -49,13 +57,19 @@ export async function deduplicateSources(
 ): Promise<Record<string, string>> {
   const aliases: Record<string, string> = {};
   const representatives: Source[] = [];
+
   for (const source of sources) {
     const duplicate = representatives.find((existing) =>
       nearIdentical(existing, source),
     );
-    if (duplicate) aliases[source.id] = duplicate.id;
-    else representatives.push(source);
+
+    if (duplicate) {
+      aliases[source.id] = duplicate.id;
+    } else {
+      representatives.push(source);
+    }
   }
+
   // Comparing bounded profiles in one pass lets duplicates across different
   // queries be detected, rather than only comparing each query in isolation.
   if (representatives.length > 1) {
@@ -80,23 +94,37 @@ export async function deduplicateSources(
       1400,
     );
     const byId = new Map(representatives.map((s) => [s.id, s]));
+
     for (const pair of result.duplicates) {
       const a = byId.get(pair.sourceId),
         b = byId.get(pair.keepSourceId);
-      if (!a || !b || a.id === b.id || aliases[a.id] || aliases[b.id]) continue;
-      if (Object.values(aliases).includes(a.id)) continue;
-      if (compatibleFacts(text(a), text(b))) aliases[a.id] = b.id;
+
+      if (!a || !b || a.id === b.id || aliases[a.id] || aliases[b.id]) {
+        continue;
+      }
+
+      if (Object.values(aliases).includes(a.id)) {
+        continue;
+      }
+
+      if (compatibleFacts(text(a), text(b))) {
+        aliases[a.id] = b.id;
+      }
     }
   }
+
   // Resolve near-copy aliases whose representative was later deduplicated.
   for (const id of Object.keys(aliases)) {
     let target = aliases[id];
     const seen = new Set([id]);
+
     while (aliases[target] && !seen.has(target)) {
       seen.add(target);
       target = aliases[target];
     }
+
     aliases[id] = target;
   }
+
   return aliases;
 }

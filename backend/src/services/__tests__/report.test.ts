@@ -433,10 +433,12 @@ test("summary repair is reviewed against its revised evidence indexes", async (t
           : calls === 3
             ? { summary: "A repaired supported opening.", overview: [1] }
             : { valid: true };
-    if (calls === 3)
+    if (calls === 3) {
       assert.deepEqual(input.review.revisionInstructions, [
         "Use finding 1 only.",
       ]);
+    }
+
     if (calls === 4) {
       assert.deepEqual(input.summaryFindingIndexes, [1]);
       assert.equal(input.summary, "A repaired supported opening.");

@@ -9,9 +9,12 @@ export const exaClient = new Exa(process.env.EXA_API_KEY);
 
 export function requireExaKey(): string {
   const key = process.env.EXA_API_KEY;
-  if (!key)
+
+  if (!key) {
     throw new PermanentError(
       "Web search is not configured: EXA_API_KEY is missing.",
     );
+  }
+
   return key;
 }

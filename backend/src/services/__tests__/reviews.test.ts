@@ -19,6 +19,18 @@ const review: PlanReview = {
   missingAngles: [],
   revisionInstructions: [],
 };
+test("approval only re-reviews plans when queries changed", async () => {
+  const { approvalRequiresReview } = await import("../research.service.js");
+  const queries = ["JPM BAC WFC 2025 revenue", "JPM BAC WFC 2025 diluted EPS"];
+
+  assert.equal(approvalRequiresReview(queries, [...queries]), false);
+  assert.equal(approvalRequiresReview([...queries].reverse(), queries), true);
+  assert.equal(
+    approvalRequiresReview([...queries, "another query"], queries),
+    true,
+  );
+});
+
 test("planner reviews the revised plan and stops when it becomes valid", async () => {
   const seen: string[] = [];
   const plan = await createResearchPlan(
@@ -37,6 +49,43 @@ test("planner reviews the revised plan and stops when it becomes valid", async (
   );
   assert.deepEqual(seen, ["initial", "revised"]);
   assert.deepEqual(plan.queries, ["revised"]);
+});
+
+test("contradictory comparison-review advice cannot reject a valid plan", async () => {
+  let revisions = 0;
+  const plan = await createResearchPlan(
+    "JPM vs WFC vs BOFA",
+    "Deep research",
+    "Web",
+    undefined,
+    {
+      initial: async () => ({
+        queries: [
+          "JPMorgan Chase Wells Fargo Bank of America latest released revenue",
+        ],
+        brief: {
+          originalQuestion: "JPM vs WFC vs BOFA",
+          intent: "comparison",
+          domain: "financial",
+          answerShape: "comparison" as const,
+          entities: ["JPMorgan Chase", "Wells Fargo", "Bank of America"],
+          currentDate: "2026-10-20",
+        },
+      }),
+      review: async () => ({
+        ...review,
+        revisionInstructions: [
+          "Restructure into individual queries, each containing exactly one entity and one metric.",
+        ],
+      }),
+      revise: async () => {
+        revisions++;
+        throw new Error("Contradictory advice must not trigger revision.");
+      },
+    },
+  );
+  assert.equal(revisions, 0);
+  assert.equal(plan.reviews?.[0]?.valid, true);
 });
 
 test("approved searches are checkpointed and automatic follow-ups are not dispatched", async () => {
@@ -61,7 +110,10 @@ test("approved searches are checkpointed and automatic follow-ups are not dispat
     },
     review: async () => {
       reviews++;
-      if (reviews === 1) throw new Error("review failed");
+      if (reviews === 1) {
+        throw new Error("review failed");
+      }
+
       return verdict;
     },
   };
@@ -224,7 +276,8 @@ test("searches use bounded parallelism and retain checkpointed queries", async (
 });
 
 test("ticker entities accept full company names without false missing-entity flags", async () => {
-  const { planIssues } = await import("../planner.service.js");
+  const { aliasesFor, planIssues } = await import("../planner.service.js");
+  assert.equal(aliasesFor("BOFA")[1], "Bank of America");
   assert.deepEqual(
     planIssues(
       {
@@ -324,6 +377,22 @@ test("broad requests discover released quarterly periods rather than assuming Q3
     }),
     query,
   );
+  const staleAnnual = normalizeQueryPeriod(
+    {
+      id: "Q2",
+      query: "JPM BAC WFC 2025 revenue",
+      entities: ["JPM", "BAC", "WFC"],
+      informationNeed: "Compare the latest results",
+      targetPeriod: "2025",
+      metric: "revenue",
+    },
+    brief,
+  );
+  assert.equal(
+    staleAnnual.targetPeriod,
+    "Latest released interim period and latest full fiscal year as of 2026-10-09",
+  );
+  assert.match(staleAnnual.query, /latest released interim/);
 });
 
 const comparisonBrief = {
@@ -344,7 +413,7 @@ test("comparison queries are constructed with all entities and one metric", asyn
         query: "JPM revenue and EPS",
         entities: ["JPM"],
         informationNeed: metric,
-        targetPeriod: "2025",
+        targetPeriod: "Latest released quarter as of 2026-10-09",
         metric,
       },
       comparisonBrief,
@@ -353,8 +422,8 @@ test("comparison queries are constructed with all entities and one metric", asyn
   assert.deepEqual(
     queries.map((q) => q.query),
     [
-      "JPMorgan Chase Bank of America Wells Fargo 2025 net interest income",
-      "JPMorgan Chase Bank of America Wells Fargo 2025 diluted EPS",
+      "JPMorgan Chase Bank of America Wells Fargo Latest released quarter as of 2026-10-09 net interest income",
+      "JPMorgan Chase Bank of America Wells Fargo Latest released quarter as of 2026-10-09 diluted EPS",
     ],
   );
   assert.ok(queries.every((q) => q.entities.length === 3));
@@ -373,9 +442,9 @@ test("comparison queries are constructed with all entities and one metric", asyn
 test("entity coverage is required per comparison query, not just across the plan", async () => {
   const { planIssues } = await import("../planner.service.js");
   const queries = [
-    "JPM 2025 diluted EPS",
-    "BAC 2025 diluted EPS",
-    "WFC 2025 diluted EPS",
+    "JPM latest released diluted EPS",
+    "BAC latest released diluted EPS",
+    "WFC latest released diluted EPS",
   ];
   assert.equal(
     planIssues({ brief: comparisonBrief, queries }, "Deep research").length,
@@ -398,12 +467,38 @@ test("comparison queries reject closely related metric bundles", async () => {
     "market cap stock price",
   ]) {
     const issues = planIssues(
-      { brief: comparisonBrief, queries: [`JPM BAC WFC 2025 ${metric}`] },
+      {
+        brief: comparisonBrief,
+        queries: [`JPM BAC WFC latest released ${metric}`],
+      },
       "Deep research",
     );
     assert.equal(issues.length, 1, metric);
     assert.match(issues[0], /exactly one metric/);
   }
+});
+test("broad current comparisons cannot be restricted to an older year", async () => {
+  const { planIssues } = await import("../planner.service.js");
+  const stale = planIssues(
+    {
+      brief: comparisonBrief,
+      queries: ["JPM BAC WFC 2025 revenue", "JPM BAC WFC 2025 diluted EPS"],
+    },
+    "Deep research",
+  );
+  assert.ok(stale.some((issue) => issue.includes("latest released interim")));
+  assert.deepEqual(
+    planIssues(
+      {
+        brief: comparisonBrief,
+        queries: [
+          "JPM BAC WFC latest released quarterly revenue and FY 2025 context",
+        ],
+      },
+      "Deep research",
+    ),
+    [],
+  );
 });
 test("comparison generation requires a metric and preserves non-comparison plans", async () => {
   const { buildComparisonQuery } = await import("../planner.service.js");

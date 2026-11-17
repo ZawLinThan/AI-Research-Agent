@@ -45,7 +45,10 @@ export const Sidebar = ({
   const accountMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !accountMenu.current?.contains(event.target)) {
+      if (
+        event.target instanceof Node &&
+        !accountMenu.current?.contains(event.target)
+      ) {
         if (accountMenu.current) accountMenu.current.open = false;
       }
     };
@@ -57,67 +60,83 @@ export const Sidebar = ({
     action();
   };
   return (
-  <aside className={`sidebar ${menu ? "open" : ""}`}>
-    <a
-      className="brand"
-      href="/"
-      onClick={(e) => {
-        e.preventDefault();
-        navigate("Overview");
-      }}
-    >
-      <span className="brand-mark">
-        <FlaskConical size={21} />
-      </span>
-      fieldwork<span className="brand-dot">.</span>
-    </a>
-    <button className="new-button" onClick={newResearch}>
-      <Plus size={17} />
-      New research<span>↗</span>
-    </button>
-    <div className="nav-label">WORKSPACE</div>
-    <nav aria-label="Workspace">
-      {navigation.map(({ title, icon: Icon }) => (
-        <button
-          key={title}
-          aria-current={page === title ? "page" : undefined}
-          className={page === title ? "nav-item active" : "nav-item"}
-          onClick={() => navigate(title)}
-        >
-          <Icon size={18} />
-          {title}
-          {title === "My research" && <span className="count">{count}</span>}
-        </button>
-      ))}
-    </nav>
-    <div className="sidebar-bottom">
-      <button className="help-button" onClick={onHelp}>
-        <CircleHelp size={17} />
-        Help &amp; getting started
-        <ArrowUpRight size={14} />
+    <aside className={`sidebar ${menu ? "open" : ""}`}>
+      <a
+        className="brand"
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate("Overview");
+        }}
+      >
+        <span className="brand-mark">
+          <FlaskConical size={21} />
+        </span>
+        fieldwork<span className="brand-dot">.</span>
+      </a>
+      <button className="new-button" onClick={newResearch}>
+        <Plus size={17} />
+        New research<span>↗</span>
       </button>
-      <details ref={accountMenu} className="account-menu" onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.currentTarget.open = false;
-          event.currentTarget.querySelector("summary")?.focus();
-        }
-      }}>
-        <summary className="profile">
-          <span className="profile-avatar">{fullName[0]?.toUpperCase()}</span>
-          <span className="profile-name">
-            {firstName ? `${firstName}'s workspace` : "Your workspace"}
-            <small>{user ? fullName : "Preview workspace"}</small>
-          </span>
-          <ChevronUp className="account-chevron" size={16} aria-hidden="true" />
-        </summary>
-        <div className="account-actions">
-          {user ? <>
-            <button onClick={() => accountAction(onChangePassword)}>Change password</button>
-            <button onClick={() => accountAction(onSignOut)}>Sign out</button>
-          </> : <button onClick={() => accountAction(onLogin)}>Log in</button>}
-        </div>
-      </details>
-    </div>
-  </aside>
-);
+      <div className="nav-label">WORKSPACE</div>
+      <nav aria-label="Workspace">
+        {navigation.map(({ title, icon: Icon }) => (
+          <button
+            key={title}
+            aria-current={page === title ? "page" : undefined}
+            className={page === title ? "nav-item active" : "nav-item"}
+            onClick={() => navigate(title)}
+          >
+            <Icon size={18} />
+            {title}
+            {title === "My research" && <span className="count">{count}</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-bottom">
+        <button className="help-button" onClick={onHelp}>
+          <CircleHelp size={17} />
+          Help &amp; getting started
+          <ArrowUpRight size={14} />
+        </button>
+        <details
+          ref={accountMenu}
+          className="account-menu"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}
+        >
+          <summary className="profile">
+            <span className="profile-avatar">{fullName[0]?.toUpperCase()}</span>
+            <span className="profile-name">
+              {firstName ? `${firstName}'s workspace` : "Your workspace"}
+              <small>{user ? fullName : "Preview workspace"}</small>
+            </span>
+            <ChevronUp
+              className="account-chevron"
+              size={16}
+              aria-hidden="true"
+            />
+          </summary>
+          <div className="account-actions">
+            {user ? (
+              <>
+                <button onClick={() => accountAction(onChangePassword)}>
+                  Change password
+                </button>
+                <button onClick={() => accountAction(onSignOut)}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button onClick={() => accountAction(onLogin)}>Log in</button>
+            )}
+          </div>
+        </details>
+      </div>
+    </aside>
+  );
 };

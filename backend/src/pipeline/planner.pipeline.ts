@@ -3,6 +3,7 @@ import {
   reviewPlan,
   revisePlan,
   planIssues,
+  comparisonReviewContradictsRules,
 } from "../services/planner.service.js";
 import { PermanentError, RunStopped } from "../lib/errors.js";
 
@@ -21,9 +22,11 @@ export const createResearchPlan = async (
   }
 
   let plan = await deps.initial(question, depth, scope, signal);
+
   console.log("Initial Plan is ", plan);
 
   const reviews: import("../zodSchema/research.schema.js").PlanReview[] = [];
+
   const inspect = async () => {
     const semantic = await deps.review(question, plan, signal);
     const issues = planIssues(plan, depth);
@@ -36,12 +39,26 @@ export const createResearchPlan = async (
             ...semantic.revisionInstructions,
           ].slice(0, 3),
         }
-      : semantic;
+      : plan.brief?.answerShape === "comparison" &&
+          comparisonReviewContradictsRules(semantic)
+        ? {
+            ...semantic,
+            valid: true,
+            issues: [],
+            missingAngles: [],
+            revisionInstructions: [],
+          }
+        : semantic;
+
     reviews.push(result);
+
     await checkpoint?.({ ...plan, reviews });
+
     return result;
   };
+
   let review = await inspect();
+
   console.log("Initial Review says ", review);
 
   for (let count = 0; !review.valid && count < 1; count++) {
@@ -50,14 +67,19 @@ export const createResearchPlan = async (
     }
 
     plan = await deps.revise(question, depth, scope, plan, review, signal);
+
     console.log(`${count + 1} revise gives `, plan);
 
     review = await inspect();
+
     console.log("Review for the prev revise ", review);
   }
-  if (!review.valid)
+
+  if (!review.valid) {
     throw new PermanentError(
       `Research plan failed review after one revision: ${[...new Set([...review.revisionInstructions, ...review.issues])].slice(0, 3).join(" ") || "The reviewer found unresolved intent or coverage issues."}`,
     );
+  }
+
   return { ...plan, reviews };
 };

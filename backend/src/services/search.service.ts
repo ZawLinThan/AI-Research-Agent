@@ -34,16 +34,16 @@ export const search = async (
         contents: { highlights: true },
         ...(scope === "Academic"
           ? {
-            includeDomains: [
-              "arxiv.org",
-              "pubmed.ncbi.nlm.nih.gov",
-              "pmc.ncbi.nlm.nih.gov",
-              "nature.com",
-              "science.org",
-              "acm.org",
-              "ieee.org",
-            ],
-          }
+              includeDomains: [
+                "arxiv.org",
+                "pubmed.ncbi.nlm.nih.gov",
+                "pmc.ncbi.nlm.nih.gov",
+                "nature.com",
+                "science.org",
+                "acm.org",
+                "ieee.org",
+              ],
+            }
           : {}),
       },
       {
@@ -80,10 +80,7 @@ export const search = async (
   }));
 };
 
-const selectReviewSources = (
-  sources: Source[],
-  limit = 4,
-) => {
+const selectReviewSources = (sources: Source[], limit = 4) => {
   const selected: Source[] = [];
   const seenDomains = new Set<string>();
 
@@ -116,12 +113,13 @@ const selectReviewSources = (
 };
 
 const loggingSource = (source: Source) => {
-  console.log("   title: ", source.title)
-  console.log("   url: ", source.url)
-  console.log("   highlights: ", source.highlights
-    .slice(0, 1)
-    .map((text) => text.slice(0, 250)),)
-}
+  console.log("   title: ", source.title);
+  console.log("   url: ", source.url);
+  console.log(
+    "   highlights: ",
+    source.highlights.slice(0, 1).map((text) => text.slice(0, 250)),
+  );
+};
 
 export const prepareSearchReview = (
   searches: Record<string, Source[]>,
@@ -134,11 +132,10 @@ export const prepareSearchReview = (
 
   for (const [query, sources] of entries) {
     console.log("query: ", query);
-    console.log("resultCount: ", sources.length)
-    console.log("sources: ")
-    sources.map(source => (
-      loggingSource(source)
-    ))
+    console.log("resultCount: ", sources.length);
+    console.log("sources: ");
+    sources.map((source) => loggingSource(source));
+
     const summary: QuerySearchSummary = {
       query: query.slice(0, 300),
       resultCount: sources.length,
@@ -153,10 +150,13 @@ export const prepareSearchReview = (
     while (
       JSON.stringify(summary).length > perQuery &&
       summary.topResults.length
-    )
+    ) {
       summary.topResults.pop();
+    }
+
     summaries.push(summary);
   }
+
   return summaries;
 };
 
