@@ -91,7 +91,7 @@ test("failed coverage produces a clearly incomplete report without a one-sided s
                   sections: [],
                 }
               : calls === 3
-                ? { summary: "Another inadequate comparison.", overview: [0] }
+                ? { summary: "Another inadequate comparison.", overview: [999] }
                 : { valid: false, reason: "Missing comparison entities." },
           ),
         },
@@ -235,14 +235,14 @@ test("old layouts without an overview still get a direct answer", () => {
 });
 
 test("verification batches preserve global finding indexes and reject out-of-range IDs", async (t) => {
-  const findings = Array.from({ length: 9 }, (_, i) => ({
+  const findings = Array.from({ length: 19 }, (_, i) => ({
     ...analysis.findings[0],
     claim: `Finding ${i}`,
   }));
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     const input = JSON.parse(request.messages[1].content);
-    assert.ok(input.findings.length <= 4);
+    assert.ok(input.findings.length <= 10);
     calls++;
     return {
       choices: [
@@ -253,10 +253,10 @@ test("verification batches preserve global finding indexes and reject out-of-ran
   const verified = await verifyFindings("How?", { ...analysis, findings }, [
     source,
   ]);
-  assert.equal(calls, 3);
+  assert.equal(calls, 2);
   assert.deepEqual(
     verified.findings.map((f) => f.claim),
-    ["Finding 0", "Finding 3", "Finding 4", "Finding 7", "Finding 8"],
+    ["Finding 0", "Finding 3", "Finding 10", "Finding 13"],
   );
 });
 
@@ -396,7 +396,7 @@ test("unsupported summaries are revised once then omitted", async (t) => {
                   sections: [{ heading: "Details", findingIndexes: [0, 1] }],
                 }
               : calls === 3
-                ? { summary: "Redis guarantees success.", overview: [0] }
+                ? { summary: "Redis guarantees success.", overview: [999] }
                 : { valid: false },
           ),
         },
@@ -416,7 +416,7 @@ test("unsupported summaries are revised once then omitted", async (t) => {
   assert.ok(report.includes(analysis.findings[0].claim));
 });
 
-test("summary repair is reviewed against its revised evidence indexes", async (t) => {
+test("summary repair validates its revised evidence indexes without another LLM review", async (t) => {
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
@@ -433,10 +433,12 @@ test("summary repair is reviewed against its revised evidence indexes", async (t
           : calls === 3
             ? { summary: "A repaired supported opening.", overview: [1] }
             : { valid: true };
-    if (calls === 3)
+    if (calls === 3) {
       assert.deepEqual(input.review.revisionInstructions, [
         "Use finding 1 only.",
       ]);
+    }
+
     if (calls === 4) {
       assert.deepEqual(input.summaryFindingIndexes, [1]);
       assert.equal(input.summary, "A repaired supported opening.");
@@ -444,7 +446,7 @@ test("summary repair is reviewed against its revised evidence indexes", async (t
     return { choices: [{ message: { content: JSON.stringify(value) } }] };
   });
   const layout = await createReportLayout("How do queues work?", analysis);
-  assert.equal(calls, 4);
+  assert.equal(calls, 3);
   assert.equal(layout.summary, "A repaired supported opening.");
   assert.deepEqual(layout.overview, [1]);
 });

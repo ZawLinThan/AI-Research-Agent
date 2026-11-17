@@ -18,8 +18,22 @@ export const researchBriefSchema = z.object({
   domain: z.string(),
   answerShape: z.enum(["comparison", "overview", "causal", "timeline"]),
   currentDate: z.string(),
+  entityResolutions: z
+    .array(
+      z.object({
+        requestedName: z.string(),
+        canonicalName: z.string(),
+        ticker: z.string().optional(),
+        note: z.string(),
+        sourceUrl: z.string().url().optional(),
+        status: z.enum(["verified", "uncertain"]),
+      }),
+    )
+    .optional(),
 });
+
 export type ResearchBrief = z.infer<typeof researchBriefSchema>;
+
 export const plannedQuerySchema = z.object({
   id: z.string(),
   query: z.string().trim().min(3).max(300),
@@ -28,14 +42,18 @@ export const plannedQuerySchema = z.object({
   targetPeriod: z.string().optional(),
   metric: z.string().trim().min(1).max(120).optional(),
 });
+
 export type PlannedQuery = z.infer<typeof plannedQuerySchema>;
+
 // Keep string queries for the existing plan editor and old checkpoints.
 export const planSchema = z.object({
-  queries: z.array(z.string().trim().min(3).max(300)).min(1).max(6),
-  plannedQueries: z.array(plannedQuerySchema).max(6).optional(),
+  queries: z.array(z.string().trim().min(3).max(300)).min(1).max(12),
+  plannedQueries: z.array(plannedQuerySchema).max(12).optional(),
   brief: researchBriefSchema.optional(),
   reviews: z.array(z.unknown()).optional(),
+  warnings: z.array(z.string()).optional(),
 });
+
 export type ResearchPlan = z.infer<typeof planSchema>;
 
 export const planReviewSchema = z.object({
@@ -63,6 +81,7 @@ export const findingSchema = z.object({
     .min(1)
     .max(6),
 });
+
 export const analysisSchema = z.object({
   findings: z.array(findingSchema).max(60),
   gaps: z.array(z.string().max(300)).max(30),

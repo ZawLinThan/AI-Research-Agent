@@ -13,26 +13,51 @@ function promptSchema(request: any) {
 }
 
 test("truncation recovery fits the configured token window", async (t) => {
-  const { openRouterTokensPerMinute: limit } = await import("../../config/researchLimits.js");
-  const { configureProviderScheduler, ProviderScheduler } = await import("../../lib/providerRateLimit.js");
+  const { openRouterTokensPerMinute: limit } =
+    await import("../../config/researchLimits.js");
+  const { configureProviderScheduler, ProviderScheduler } =
+    await import("../../lib/providerRateLimit.js");
   const reservations: number[] = [];
-  configureProviderScheduler("openrouter", new ProviderScheduler({
-    acquire: async (tokens) => {
-      assert.ok(tokens <= limit);
-      reservations.push(tokens);
-      return 0;
-    },
-    cooldown: async () => {},
-  }));
+  configureProviderScheduler(
+    "openrouter",
+    new ProviderScheduler({
+      acquire: async (tokens) => {
+        assert.ok(tokens <= limit);
+        reservations.push(tokens);
+        return 0;
+      },
+      cooldown: async () => {},
+    }),
+  );
   t.after(() => configureProviderScheduler("openrouter"));
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     assert.ok(request.max_tokens > 0);
-    assert.ok(Math.ceil(Buffer.byteLength(JSON.stringify(request)) / 3) + request.max_tokens <= limit);
-    if (++calls === 1) return { choices: [{ finish_reason: "length", message: { content: "{" } }] };
-    return { choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }] };
+    assert.ok(
+      Math.ceil(Buffer.byteLength(JSON.stringify(request)) / 3) +
+        request.max_tokens <=
+        limit,
+    );
+    if (++calls === 1) {
+      return {
+        choices: [{ finish_reason: "length", message: { content: "{" } }],
+      };
+    }
+
+    return {
+      choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }],
+    };
   });
-  assert.deepEqual(await structured("Analyze", { text: "x".repeat(6000) }, z.object({ ok: z.boolean() }), undefined, 4000), { ok: true });
+  assert.deepEqual(
+    await structured(
+      "Analyze",
+      { text: "x".repeat(6000) },
+      z.object({ ok: z.boolean() }),
+      undefined,
+      4000,
+    ),
+    { ok: true },
+  );
   assert.equal(calls, 2);
   assert.equal(reservations[1], limit);
 });
@@ -155,11 +180,12 @@ test("search review corrects a missing reason once without accepting incomplete 
       request.messages[0].content,
       /Required top-level fields:.*reason/,
     );
-    if (attempts === 1)
+    if (attempts === 1) {
       throw Object.assign(new Error("missing properties: reason"), {
         status: 400,
         code: "json_validate_failed",
       });
+    }
     assert.match(request.messages[0].content, /previous attempt was invalid/);
     return {
       choices: [
@@ -274,11 +300,12 @@ test("worker scheduling retries OpenRouter 429 in place and counts each actual r
   let requests = 0,
     extraCalls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
-    if (++requests === 1)
+    if (++requests === 1) {
       throw Object.assign(new Error("rate limit"), {
         status: 429,
         headers: new Headers({ "retry-after": "2" }),
       });
+    }
     return {
       choices: [{ message: { content: '{"reason":"Enough evidence"}' } }],
     };
@@ -301,8 +328,10 @@ test("exhausted corrections preserve missing-field diagnostics and provider iden
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
-    if (calls === 2)
+    if (calls === 2) {
       assert.match(request.messages[0].content, /reason.*invalid_type/);
+    }
+
     return { choices: [{ finish_reason: "stop", message: { content: "{}" } }] };
   });
   await assert.rejects(
@@ -434,22 +463,28 @@ test("truncation retries with more output tokens and reserves the larger budget"
   const previousModel = process.env.OPENROUTER_MODEL;
   process.env.OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning";
   t.after(() => {
-    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-    else process.env.OPENROUTER_MODEL = previousModel;
+    if (previousModel === undefined) {
+      delete process.env.OPENROUTER_MODEL;
+    } else {
+      process.env.OPENROUTER_MODEL = previousModel;
+    }
   });
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     calls++;
     assert.deepEqual(request.reasoning, { enabled: false });
     assert.equal(request.max_tokens, 1400 * 2 ** (calls - 1));
-    if (calls > 1)
+    if (calls > 1) {
       assert.match(request.messages[0].content, /compact JSON/);
-    if (calls < 3)
+    }
+
+    if (calls < 3) {
       return {
         choices: [
           { finish_reason: "length", message: { content: '{"queries":[' } },
         ],
       };
+    }
     return {
       choices: [
         {
@@ -478,11 +513,21 @@ test("persistent truncation stops after three calls without accepting partial JS
   let calls = 0;
   t.mock.method(client.chat.completions, "create", async () => {
     calls++;
-    return { choices: [{ finish_reason: "length", message: { content: '{"reason":"partial"}' } }] };
+    return {
+      choices: [
+        {
+          finish_reason: "length",
+          message: { content: '{"reason":"partial"}' },
+        },
+      ],
+    };
   });
   await assert.rejects(
     structured("Review", {}, z.object({ reason: z.string() })),
-    (error: unknown) => error instanceof ModelOutputError && error.kind === "truncated" && error.correctionAttempted,
+    (error: unknown) =>
+      error instanceof ModelOutputError &&
+      error.kind === "truncated" &&
+      error.correctionAttempted,
   );
   assert.equal(calls, 3);
 });

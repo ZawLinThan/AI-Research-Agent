@@ -36,7 +36,11 @@ export type Checkpoint = {
   plan?: ResearchPlan;
   planningDraft?: ResearchPlan;
   planApproved?: boolean;
-  highlightReport?: { summaries: Record<string, { summary: string }>; gaps?: string[]; report?: string };
+  highlightReport?: {
+    summaries: Record<string, { summary: string }>;
+    gaps?: string[];
+    report?: string;
+  };
   searches?: Record<string, Source[]>;
   sources?: Source[];
   searchComplete?: boolean;
@@ -48,11 +52,26 @@ export type Checkpoint = {
   calls?: number;
   evidenceRecords?: EvidenceRecord[];
   extractedSourceIds?: string[];
+  evidencePipelineVersion?: number;
+  evidenceRejections?: { sourceUrl: string; reason: string }[];
   reportClaims?: { text: string; evidenceIds: string[] }[];
   searchReview?: import("../zodSchema/search.schema.js").SearchReview;
 };
 
 export type ReportLayout = {
+  reportVersion?: number;
+  comparison?: {
+    entities: string[];
+    currentDate: string;
+    rows: {
+      metric: string;
+      period: string;
+      basis: string;
+      cells: { entity: string; findingIndexes: number[] }[];
+      sharedFindingIndexes: number[];
+      coveredEntities?: string[];
+    }[];
+  };
   limitations?: string[];
   // Optional only for checkpoints created before synthesized summaries.
   summary?: string;
@@ -81,6 +100,15 @@ export const terminal = (status: string) =>
   ["completed", "failed", "cancelled"].includes(status);
 
 export type EvidenceRecord = {
-  id: string; claim: string; entity?: string; metric?: string; period?: string; value?: string;
-  sourceUrl: string; sourceTitle: string; publishedAt?: string; quote: string;
+  id: string;
+  claim: string;
+  entity?: string;
+  metric?: string;
+  period?: string;
+  value?: string;
+  basis?: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  publishedAt?: string;
+  quote: string;
 };

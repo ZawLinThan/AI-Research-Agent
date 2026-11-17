@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+
 export const env = z
   .object({
     SUPABASE_URL: z.string().url(),

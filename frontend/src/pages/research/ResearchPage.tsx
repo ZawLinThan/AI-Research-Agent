@@ -31,7 +31,13 @@ export const ResearchPage = (view: WorkspaceViewProps) => {
             </p>
           </div>
           <ResearchProgress {...view} />
-          {detail.status === "awaiting_approval" && <PlanReview key={detail.id} project={detail} onApproved={() => view.setReload(v => v + 1)} />}
+          {detail.status === "awaiting_approval" && (
+            <PlanReview
+              key={detail.id}
+              project={detail}
+              onApproved={() => view.setReload((v) => v + 1)}
+            />
+          )}
           {detail.report && (
             <section className="report-panel">
               <div className="section-heading">

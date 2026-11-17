@@ -16,16 +16,24 @@ export async function createResearch(req: Request, res: Response) {
   const project = await createResearchProject(res.locals.ownerId, input);
 
   let queued = true;
+
   try {
-    if (!["completed", "failed", "cancelled", "awaiting_approval"].includes(project.status))
+    if (
+      !["completed", "failed", "cancelled", "awaiting_approval"].includes(
+        project.status,
+      )
+    ) {
       await enqueueResearch(project.id, project.checkpoint.planApproved);
+    }
   } catch {
     queued = false;
   }
+
   res
     .status(202)
     .json({ projectId: project.id, status: project.status, queued });
 }
+
 export async function getResearchStatus(req: Request, res: Response) {
   res.json(
     await getResearch(
@@ -38,6 +46,7 @@ export async function getResearchStatus(req: Request, res: Response) {
 export async function listResearchProjects(_req: Request, res: Response) {
   res.json({ projects: await listResearch(res.locals.ownerId) });
 }
+
 export async function cancelResearchProject(req: Request, res: Response) {
   res.json(
     await cancelResearch(
@@ -50,9 +59,18 @@ export async function cancelResearchProject(req: Request, res: Response) {
 export async function approvePlan(req: Request, res: Response) {
   const id = z.string().uuid().parse(req.params.projectId);
   const plan = planSchema.parse(req.body);
+
   plan.queries = [...new Set(plan.queries)];
+
   const project = await approveResearchPlan(id, res.locals.ownerId, plan);
+
   let queued = true;
-  try { await enqueueResearch(id, true); } catch { queued = false; }
+
+  try {
+    await enqueueResearch(id, true);
+  } catch {
+    queued = false;
+  }
+
   res.status(202).json({ ...project, queued });
 }

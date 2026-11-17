@@ -57,7 +57,10 @@ function fixture() {
     plan: async () => ({ queries: ["q1", "q2"] }),
     search: async (searches, _question, plan, _scope, _signal, checkpoint) => {
       for (const query of plan.queries) {
-        if (searches[query]) continue;
+        if (searches[query]) {
+          continue;
+        }
+
         searchCalls.push(query);
         searches[query] = [source];
         await checkpoint();
@@ -75,7 +78,10 @@ test("complete a cited report only after verification", async () => {
   const save = f.deps.save;
   f.deps.save = async (s, status, p, text) => {
     await save(s, status, p, text);
-    if (text) report = text;
+
+    if (text) {
+      report = text;
+    }
   };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.equal(f.states.at(-1), "completed");
@@ -114,7 +120,9 @@ test("resume from a persisted search checkpoint after provider failure", async (
 test("cancellation prevents completed writes", async () => {
   const f = fixture();
   f.deps.check = async () => {
-    if (f.record.checkpoint.plan) throw new RunStopped("cancelled");
+    if (f.record.checkpoint.plan) {
+      throw new RunStopped("cancelled");
+    }
   };
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
@@ -143,6 +151,10 @@ test("unsupported findings do not produce a completed report", async () => {
 test("provider budgets and deadlines survive retries", async () => {
   const f = fixture();
   f.record.checkpoint.calls = maxProviderCalls;
+  f.deps.plan = async () => {
+    await beforeProviderCall();
+    return { queries: ["q1"] };
+  };
   await assert.rejects(
     runPipeline(f.record, f.deps, new AbortController().signal),
     /budget/,
@@ -207,7 +219,9 @@ test("deep research can finish with all review rounds and model corrections", as
   const f = fixture();
   f.record.depth = "Deep research";
   const calls = async (count: number) => {
-    for (let i = 0; i < count; i++) await beforeProviderCall();
+    for (let i = 0; i < count; i++) {
+      await beforeProviderCall();
+    }
   };
   f.deps.plan = async () => {
     await calls(12); // Initial plan, two revisions, three reviews, each corrected once.
@@ -249,6 +263,136 @@ test("nested calls cannot bypass the remaining budget on a retried run", async (
   assert.equal(f.record.checkpoint.calls, maxProviderCalls);
 });
 
+test("concurrent provider requests reserve atomically without an execute surcharge", async () => {
+  const f = fixture();
+  const available = 10;
+  f.record.checkpoint.calls = maxProviderCalls - available;
+  let results: PromiseSettledResult<void>[] = [];
+  let actionsRan = 0;
+  f.deps.plan = async () => {
+    results = await Promise.allSettled(
+      Array.from({ length: 20 }, async () => {
+        await beforeProviderCall();
+        actionsRan++;
+      }),
+    );
+    return { queries: ["q1"] };
+  };
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(
+    results.filter((result) => result.status === "fulfilled").length,
+    available,
+  );
+  assert.equal(
+    results.filter((result) => result.status === "rejected").length,
+    available,
+  );
+  assert.equal(actionsRan, 10);
+  assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("execute without a provider request does not consume the provider budget", async () => {
+  const f = fixture();
+  f.record.checkpoint.calls = maxProviderCalls;
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.calls, maxProviderCalls);
+});
+
+test("item checkpoints coalesce and a failed extraction resumes from its hard flush", async () => {
+  const f = fixture();
+  const many = Array.from({ length: 50 }, (_, index): Source => {
+    const itemUrl = `https://example.com/source-${index}`;
+    return { ...source, id: sourceId(itemUrl), url: itemUrl };
+  });
+  f.record.checkpoint = {
+    plan: { queries: ["q1"] },
+    planApproved: true,
+    searchComplete: true,
+    searches: { q1: many },
+  };
+  const writes: { status: string; extracted: number }[] = [];
+  const originalSave = f.deps.save;
+  f.deps.save = async (state, status, progress, report) => {
+    writes.push({ status, extracted: state.extractedSourceIds?.length ?? 0 });
+    await originalSave(state, status, progress, report);
+  };
+  let fail = true;
+  f.deps.extractRecords = async (
+    _question,
+    sources,
+    state,
+    _signal,
+    checkpoint,
+  ) => {
+    state.extractedSourceIds ??= [];
+    for (const item of sources) {
+      if (state.extractedSourceIds.includes(item.id)) continue;
+      state.extractedSourceIds.push(item.id);
+      await checkpoint();
+      if (fail && state.extractedSourceIds.length === 25) {
+        throw new Error("Simulated extraction failure");
+      }
+    }
+    return state.evidenceRecords ?? [];
+  };
+  f.deps.analyze = async (_question, sources) => ({
+    ...analysis,
+    findings: [
+      {
+        claim: analysis.findings[0].claim,
+        evidence: [
+          { sourceId: sources[0].id, quote: sources[0].highlights[0] },
+        ],
+      },
+    ],
+  });
+  f.deps.verify = async (_question, candidate) => candidate;
+
+  await assert.rejects(
+    runPipeline(f.record, f.deps, new AbortController().signal),
+    /Simulated extraction failure/,
+  );
+  assert.equal(f.record.checkpoint.extractedSourceIds?.length, 25);
+  fail = false;
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+  assert.equal(f.record.checkpoint.extractedSourceIds?.length, 50);
+  assert.equal(
+    writes.filter(
+      (write) =>
+        write.status === "analyzing" &&
+        write.extracted > 0 &&
+        write.extracted < 50,
+    ).length,
+    1,
+  );
+  assert.ok(
+    writes.length < 20,
+    `Expected coalesced writes, got ${writes.length}`,
+  );
+});
+
+test("dirty search progress flushes during a long stage", async () => {
+  const f = fixture();
+  f.deps.search = async (
+    searches,
+    _question,
+    _plan,
+    _scope,
+    _signal,
+    checkpoint,
+  ) => {
+    searches.q1 = [source];
+    await checkpoint();
+    await new Promise((resolve) => setTimeout(resolve, 2650));
+    assert.deepEqual(f.record.checkpoint.searches?.q1, [source]);
+    return searches;
+  };
+
+  await runPipeline(f.record, f.deps, new AbortController().signal);
+});
+
 test("planning pauses and retries never search before approval", async () => {
   const f = fixture();
   f.record.checkpoint = {};
@@ -256,19 +400,36 @@ test("planning pauses and retries never search before approval", async () => {
   assert.equal(f.states.at(-1), "awaiting_approval");
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.deepEqual(f.searchCalls, []);
-  f.record.checkpoint = { plan: { queries: ["edited query"] }, planApproved: true };
+  f.record.checkpoint = {
+    plan: { queries: ["edited query"] },
+    planApproved: true,
+  };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.deepEqual(f.searchCalls, ["edited query"]);
   assert.equal(f.states.at(-1), "completed");
 });
 
 test("search executes only approved queries without automatic follow-ups", async () => {
-  const { searchForSources } = await import("../../pipeline/search.pipeline.js");
+  const { searchForSources } =
+    await import("../../pipeline/search.pipeline.js");
   const searched: string[] = [];
-  await searchForSources({}, "question", { queries: ["approved"] }, "Web", new AbortController().signal, async () => {}, {
-    search: async query => { searched.push(query); return [source]; },
-    review: async () => { throw new Error("Must not generate unapproved queries"); },
-  });
+  await searchForSources(
+    {},
+    "question",
+    { queries: ["approved"] },
+    "Web",
+    new AbortController().signal,
+    async () => {},
+    {
+      search: async (query) => {
+        searched.push(query);
+        return [source];
+      },
+      review: async () => {
+        throw new Error("Must not generate unapproved queries");
+      },
+    },
+  );
   assert.deepEqual(searched, ["approved"]);
 });
 
@@ -300,7 +461,12 @@ test("an omitted unsupported summary is checkpointed and not regenerated on resu
   let presentations = 0;
   f.deps.present = async () => {
     presentations++;
-    return { summaryOmitted: true, overview: [0], sections: [{ heading: "Supported findings", findingIndexes: [0] }], limitations: ["A complete answer could not be validated."] };
+    return {
+      summaryOmitted: true,
+      overview: [0],
+      sections: [{ heading: "Supported findings", findingIndexes: [0] }],
+      limitations: ["A complete answer could not be validated."],
+    };
   };
   await runPipeline(f.record, f.deps, new AbortController().signal);
   assert.equal(f.record.checkpoint.reportLayout?.summaryOmitted, true);

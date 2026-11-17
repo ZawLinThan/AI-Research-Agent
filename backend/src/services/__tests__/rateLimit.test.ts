@@ -50,10 +50,18 @@ test("429 cooldown waits then retries only the provider request without failing 
   const scheduler = new ProviderScheduler(gate, async (n) => {
     waits.push(n);
   });
-  const result = await scheduler.run("openrouter", 1000, undefined, async () => {
-    if (++calls === 1) throw limited("5");
-    return "completed";
-  });
+  const result = await scheduler.run(
+    "openrouter",
+    1000,
+    undefined,
+    async () => {
+      if (++calls === 1) {
+        throw limited("5");
+      }
+
+      return "completed";
+    },
+  );
   assert.equal(result, "completed");
   assert.equal(calls, 2);
   assert.deepEqual(waits, [6000]);

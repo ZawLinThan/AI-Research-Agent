@@ -9,6 +9,7 @@ import { authRouter, csrfProtection } from "./auth/routes.js";
 import { AuthError } from "./auth/provider.js";
 
 export const app = express();
+
 const frontendUrl = new URL(env.FRONTEND_ORIGIN);
 const localDevelopment =
   process.env.NODE_ENV !== "production" &&
@@ -61,10 +62,12 @@ app.use(
       res.status(400).json({ error: "Invalid JSON request." });
       return;
     }
+
     if ((error as { type?: string })?.type === "entity.too.large") {
       res.status(413).json({ error: "Request is too large." });
       return;
     }
+
     if (error instanceof z.ZodError) {
       res.status(400).json({
         error: "Invalid request. Check the supplied fields.",
@@ -75,10 +78,12 @@ app.use(
       });
       return;
     }
+
     if (error instanceof RequestError || error instanceof AuthError) {
       res.status(error.status).json({ error: error.message });
       return;
     }
+
     console.error("Research API request failed");
     res.status(500).json({
       error: "Research is temporarily unavailable. Please try again.",

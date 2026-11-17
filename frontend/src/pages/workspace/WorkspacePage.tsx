@@ -42,8 +42,8 @@ export const WorkspacePage = ({
     : page === "Templates"
       ? TemplatesPage
       : page === "My research"
-          ? HistoryPage
-          : HomePage;
+        ? HistoryPage
+        : HomePage;
   return (
     <div className="app-shell">
       {menu && (

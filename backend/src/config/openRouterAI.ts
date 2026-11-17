@@ -29,8 +29,10 @@ export async function structured<T>(
   const model = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning";
   let tokenAllowance = completionTokens;
   let correction: ModelOutputError | undefined;
+
   for (let attempt = 0; attempt < 3; attempt++) {
     signal?.throwIfAborted();
+
     try {
       const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
         reasoning?: { enabled: boolean };
@@ -66,8 +68,11 @@ export async function structured<T>(
         Buffer.byteLength(JSON.stringify(request), "utf8") / 3,
       );
       const remainingTokens = openRouterTokensPerMinute - promptTokens;
-      if (remainingTokens > 0)
+
+      if (remainingTokens > 0) {
         request.max_tokens = Math.min(tokenAllowance, remainingTokens);
+      }
+
       const estimatedTokens = promptTokens + request.max_tokens!;
 
       const response = await scheduleProviderRequest(
@@ -79,12 +84,14 @@ export async function structured<T>(
           return client.chat.completions.create(request, { signal });
         },
       );
+
       if (response.choices[0]?.finish_reason === "length") {
         throw new ModelOutputError(
           "The model response was truncated.",
           "truncated",
         );
       }
+
       return parseModelOutput(
         response.choices[0]?.message.content || "",
         schema,
@@ -92,14 +99,18 @@ export async function structured<T>(
       );
     } catch (error) {
       tagProviderError(error, "openrouter");
+
       const code =
         (error as { code?: string; error?: { code?: string } })?.code ??
         (error as { error?: { code?: string } })?.error?.code;
+
       if (
         !(error instanceof ModelOutputError) &&
         code !== "json_validate_failed"
-      )
+      ) {
         throw error;
+      }
+
       // Providers may reject otherwise usable output for an array-count limit.
       // Apply the same task-specific normalization as successful responses.
       if (code === "json_validate_failed" && normalizeOutput) {
@@ -109,6 +120,7 @@ export async function structured<T>(
         };
         const generated =
           failure.error?.failed_generation ?? failure.failed_generation;
+
         if (typeof generated === "string") {
           try {
             return parseModelOutput(generated, schema, normalizeOutput);
@@ -117,21 +129,30 @@ export async function structured<T>(
           }
         }
       }
+
       const validation =
         error instanceof ModelOutputError
           ? error
           : providerValidationError(error, schema);
+
       validation.correctionAttempted = attempt > 0;
+
       // Permit one extra recovery only when the correction itself was cut off.
       // Ordinary schema/JSON errors still receive just one correction.
-      if (attempt === 2 || (attempt === 1 && validation.kind !== "truncated"))
+      if (attempt === 2 || (attempt === 1 && validation.kind !== "truncated")) {
         throw validation;
+      }
+
       correction = validation;
+
       // A truncated response cannot be repaired with the same output allowance.
       // The scheduler still reserves the full request and enforces the TPM limit.
-      if (validation.kind === "truncated") tokenAllowance *= 2;
+      if (validation.kind === "truncated") {
+        tokenAllowance *= 2;
+      }
     }
   }
+
   throw new ModelOutputError(
     "The model could not produce valid research data.",
   );
@@ -144,6 +165,7 @@ function parseModelOutput<T>(
   normalizeOutput?: (value: unknown) => unknown,
 ): T {
   let value: unknown;
+
   try {
     value = JSON.parse(content);
   } catch {
@@ -152,20 +174,24 @@ function parseModelOutput<T>(
       "invalid_json",
     );
   }
+
   const result = schema.safeParse(
     normalizeOutput ? normalizeOutput(value) : value,
   );
+
   if (!result.success) {
     const issues = result.error.issues.slice(0, 8).map((issue) => ({
       path: issue.path.map(String).join(".").slice(0, 160) || "$",
       code: issue.code,
     }));
+
     throw new ModelOutputError(
       "The model response did not match the required schema.",
       "schema_validation",
       issues,
     );
   }
+
   return result.data;
 }
 
@@ -181,6 +207,7 @@ function providerValidationError<T>(
   };
   const generated =
     failure.error?.failed_generation ?? failure.failed_generation;
+
   if (typeof generated === "string") {
     try {
       parseModelOutput(generated, schema);
@@ -191,6 +218,7 @@ function providerValidationError<T>(
       }
     }
   }
+
   // Some providers supply only a textual missing-property diagnostic. Match only
   // known top-level schema fields rather than copying an arbitrary provider message.
   const required =
@@ -200,6 +228,7 @@ function providerValidationError<T>(
   const issues = required
     .filter((key) => missing.includes(`'${key}'`))
     .map((path) => ({ path, code: "missing_property" }));
+
   return new ModelOutputError(
     "The provider rejected the model's output schema.",
     "provider_schema_validation",

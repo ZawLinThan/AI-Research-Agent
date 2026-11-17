@@ -259,3 +259,18 @@ the query with the complete entity list. Deterministic checks reject missing
 entities in any query and common metric bundles, while semantic review checks
 other metric definitions. Approval and pre-search checks enforce the same rules.
 Overview requests retain their original shape.
+
+## Final comparison report
+
+Comparison reports use a dedicated presenter with a matrix of metric, reporting
+period, accounting basis and one column per requested entity. Only surviving
+verified claims and their evidence IDs populate cells. Period aliases are
+normalized before grouping; different accounting bases remain separate. Missing
+metrics and entity coverage are explicit. Shared comparison claims appear once
+below the matrix. Duplicate same-value claims are consolidated.
+
+The introduction is validated for factual support, independently of coverage.
+A qualified introduction can pass when some metrics lack evidence. One repair is
+allowed, then a deterministic coverage summary replaces an unsupported
+introduction. Report version 2 upgrades unfinished old layout checkpoints.
+The frontend renders the Markdown comparison table and numbered citation links.

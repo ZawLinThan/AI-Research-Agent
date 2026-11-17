@@ -33,6 +33,13 @@ const active = notInArray(projects.status, [
   "cancelled",
 ]);
 
+export const approvalRequiresReview = (
+  submittedQueries: string[],
+  existingQueries: string[] | undefined,
+) =>
+  submittedQueries.length !== existingQueries?.length ||
+  submittedQueries.some((query, index) => query !== existingQueries[index]);
+
 export async function createResearchProject(
   owner: string,
   input: ResearchInput,
@@ -49,28 +56,34 @@ export async function createResearchProject(
         ),
       )
       .limit(1);
+
     if (existing) {
       if (
         existing.question !== input.question ||
         existing.depth !== input.depth ||
         existing.scope !== input.scope
-      )
+      ) {
         throw new RequestError(
           409,
           "This request ID was already used for a different question.",
         );
+      }
+
       return existing;
     }
-    
+
     const [{ count: running }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(projects)
       .where(and(eq(projects.ownerId, owner), active));
-    if (running >= 3)
+
+    if (running >= 3) {
       throw new RequestError(
         429,
         "You already have three active research runs. Wait or cancel one.",
       );
+    }
+
     const [{ count: daily }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(projects)
@@ -80,11 +93,14 @@ export async function createResearchProject(
           gte(projects.createdAt, new Date(Date.now() - 86400_000)),
         ),
       );
-    if (daily >= 20)
+
+    if (daily >= 20) {
       throw new RequestError(
         429,
         "Daily research limit reached. Please try again tomorrow.",
       );
+    }
+
     const [project] = await tx
       .insert(projects)
       .values({
@@ -95,6 +111,7 @@ export async function createResearchProject(
         scope: input.scope,
       })
       .returning();
+
     return project;
   });
 }
@@ -117,51 +134,112 @@ export async function listResearch(owner: string) {
     .orderBy(desc(projects.createdAt))
     .limit(100);
 }
+
 export async function getResearch(id: string, owner: string) {
   const [project] = await db
     .select()
     .from(projects)
     .where(owned(id, owner))
     .limit(1);
-  if (!project) throw new RequestError(404, "Research not found.");
+
+  if (!project) {
+    throw new RequestError(404, "Research not found.");
+  }
+
   const rows = await db.select().from(sources).where(eq(sources.projectId, id));
   const { checkpoint, runToken, ownerId, requestId, startedAt, ...visible } =
     project;
-  const stageRows = await db.select().from(stages).where(eq(stages.projectId, id));
+  const stageRows = await db
+    .select()
+    .from(stages)
+    .where(eq(stages.projectId, id));
+
   return { ...visible, sources: rows, stages: stageRows };
 }
+
 export async function cancelResearch(id: string, owner: string) {
   await db
     .update(projects)
     .set({ status: "cancelled", updatedAt: new Date(), runToken: null })
     .where(and(owned(id, owner), active));
+
   return getResearch(id, owner);
 }
-export async function approveResearchPlan(id: string, owner: string, plan: ResearchPlan) {
-  const [existing] = await db.select().from(projects).where(owned(id, owner)).limit(1);
-  if (!existing || existing.status !== "awaiting_approval") throw new RequestError(409, "This plan is no longer awaiting approval.");
-  plan = { ...existing.researchPlan, queries: plan.queries,
-    plannedQueries: plan.queries.map((query, i) => ({
-      ...(existing.researchPlan?.plannedQueries?.find(q => q.query === query) ?? { informationNeed: query, entities: [] }),
-      id: `Q${i+1}`, query,
-    })) };
-  const issues = planIssues(plan, existing.depth);
-  if (issues.length) throw new RequestError(400, issues.join(" "));
-  if (plan.brief?.answerShape === "comparison" || JSON.stringify(plan.queries) !== JSON.stringify(existing.researchPlan?.queries)) {
-    const review = await reviewPlan(existing.question, plan);
-    if (!review.valid) throw new RequestError(400, review.revisionInstructions.join(" ") || "Edited plan failed review.");
-    plan.reviews = [...(plan.reviews ?? []), review];
+
+export async function approveResearchPlan(
+  id: string,
+  owner: string,
+  plan: ResearchPlan,
+) {
+  const [existing] = await db
+    .select()
+    .from(projects)
+    .where(owned(id, owner))
+    .limit(1);
+
+  if (!existing || existing.status !== "awaiting_approval") {
+    throw new RequestError(409, "This plan is no longer awaiting approval.");
   }
-  const [updated] = await db.update(projects).set({
-    researchPlan: plan,
-    checkpoint: { ...existing.checkpoint, plan, planApproved: true },
-    status: "pending",
-    startedAt: null,
-    runToken: null,
-    error: null,
-    updatedAt: new Date(),
-  }).where(and(owned(id, owner), eq(projects.status, "awaiting_approval"))).returning({ id: projects.id });
-  if (!updated) throw new RequestError(409, "This plan is no longer awaiting approval.");
+
+  plan = {
+    ...existing.researchPlan,
+    queries: plan.queries,
+    plannedQueries: plan.queries.map((query, i) => ({
+      ...(plan.plannedQueries?.[i] ??
+        existing.researchPlan?.plannedQueries?.[i] ?? {
+          informationNeed: query,
+          entities: [],
+        }),
+      id: `Q${i + 1}`,
+      query,
+    })),
+  };
+
+  const issues = planIssues(plan, existing.depth);
+
+  if (issues.length) {
+    throw new RequestError(400, issues.join(" "));
+  }
+
+  if (approvalRequiresReview(plan.queries, existing.researchPlan?.queries)) {
+    try {
+      const review = await reviewPlan(existing.question, plan);
+      plan.reviews = [...(plan.reviews ?? []), review];
+      if (!review.valid) {
+        plan.warnings = [
+          ...new Set([
+            ...(plan.warnings ?? []),
+            ...review.issues,
+            ...review.revisionInstructions,
+          ]),
+        ];
+      }
+    } catch {
+      plan.warnings = [
+        ...(plan.warnings ?? []),
+        "Automatic review of edited queries was unavailable.",
+      ];
+    }
+  }
+
+  const [updated] = await db
+    .update(projects)
+    .set({
+      researchPlan: plan,
+      checkpoint: { ...existing.checkpoint, plan, planApproved: true },
+      status: "pending",
+      startedAt: null,
+      runToken: null,
+      error: null,
+      updatedAt: new Date(),
+    })
+    .where(and(owned(id, owner), eq(projects.status, "awaiting_approval")))
+    .returning({ id: projects.id });
+
+  if (!updated) {
+    throw new RequestError(409, "This plan is no longer awaiting approval.");
+  }
+
   return getResearch(id, owner);
 }
 
@@ -174,18 +252,31 @@ export async function claimRun(id: string) {
       startedAt: sql`coalesce(${projects.startedAt}, now())`,
       updatedAt: new Date(),
     })
-    .where(and(eq(projects.id, id), isNotNull(projects.ownerId), active, notInArray(projects.status, ["awaiting_approval"])))
+    .where(
+      and(
+        eq(projects.id, id),
+        isNotNull(projects.ownerId),
+        active,
+        notInArray(projects.status, ["awaiting_approval"]),
+      ),
+    )
     .returning();
+
   return project ? { project, token } : null;
 }
+
 export async function checkRun(id: string, token: string) {
   const [row] = await db
     .select({ id: projects.id })
     .from(projects)
     .where(and(eq(projects.id, id), eq(projects.runToken, token), active))
     .limit(1);
-  if (!row) throw new RunStopped("Run cancelled or superseded");
+
+  if (!row) {
+    throw new RunStopped("Run cancelled or superseded");
+  }
 }
+
 export async function saveCheckpoint(
   id: string,
   token: string,
@@ -208,21 +299,40 @@ export async function saveCheckpoint(
       })
       .where(and(eq(projects.id, id), eq(projects.runToken, token), active))
       .returning({ id: projects.id });
-    if (!rows.length) throw new RunStopped("Run cancelled or superseded");
-    const artifacts: Record<string, unknown> = {
-      brief: (state.plan ?? state.planningDraft)?.brief, plan: state.plan ?? state.planningDraft, plan_review: (state.plan ?? state.planningDraft)?.reviews,
-      search_results: state.searches, search_review: state.searchReview,
-      evidence: state.evidenceRecords, report_claims: state.reportClaims, final_report: report,
-    };
-    for (const [stage, payload] of Object.entries(artifacts)) {
-      if (payload === undefined) continue;
-      await tx.insert(stages).values({ projectId: id, stage, payload }).onConflictDoUpdate({
-        target: [stages.projectId, stages.stage], set: { payload, updatedAt: new Date() },
-      });
+
+    if (!rows.length) {
+      throw new RunStopped("Run cancelled or superseded");
     }
+
+    const artifacts: Record<string, unknown> = {
+      brief: (state.plan ?? state.planningDraft)?.brief,
+      plan: state.plan ?? state.planningDraft,
+      plan_review: (state.plan ?? state.planningDraft)?.reviews,
+      search_results: state.searches,
+      search_review: state.searchReview,
+      evidence: state.evidenceRecords,
+      report_claims: state.reportClaims,
+      final_report: report,
+    };
+
+    for (const [stage, payload] of Object.entries(artifacts)) {
+      if (payload === undefined) {
+        continue;
+      }
+
+      await tx
+        .insert(stages)
+        .values({ projectId: id, stage, payload })
+        .onConflictDoUpdate({
+          target: [stages.projectId, stages.stage],
+          set: { payload, updatedAt: new Date() },
+        });
+    }
+
     if (state.sources) {
       await tx.delete(sources).where(eq(sources.projectId, id));
-      if (state.sources.length)
+
+      if (state.sources.length) {
         await tx.insert(sources).values(
           state.sources.map((s) => ({
             ...s,
@@ -230,9 +340,11 @@ export async function saveCheckpoint(
             retrievedAt: new Date(s.retrievedAt),
           })),
         );
+      }
     }
   });
 }
+
 export async function failRun(
   id: string,
   token: string,
@@ -248,14 +360,26 @@ export async function failRun(
     })
     .where(and(eq(projects.id, id), eq(projects.runToken, token), active));
 }
+
 export async function recoverableRuns() {
   return db
-    .select({ id: projects.id, startedAt: projects.startedAt, checkpoint: projects.checkpoint })
+    .select({
+      id: projects.id,
+      startedAt: projects.startedAt,
+      checkpoint: projects.checkpoint,
+    })
     .from(projects)
-    .where(and(active, isNotNull(projects.ownerId), notInArray(projects.status, ["awaiting_approval"])))
+    .where(
+      and(
+        active,
+        isNotNull(projects.ownerId),
+        notInArray(projects.status, ["awaiting_approval"]),
+      ),
+    )
     .orderBy(projects.updatedAt)
     .limit(100);
 }
+
 export async function markOrphanFailed(id: string, message: string) {
   await db
     .update(projects)

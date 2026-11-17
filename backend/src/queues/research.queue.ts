@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
 import { createRedis } from "../config/redis.js";
+
 export const RESEARCH_QUEUE = process.env.RESEARCH_QUEUE_NAME || "research-v2";
 
 export const producerConnection = createRedis();
@@ -15,5 +16,9 @@ export const researchQueue = new Queue(RESEARCH_QUEUE, {
 });
 
 export async function enqueueResearch(id: string, approved = false) {
-  return researchQueue.add("run", { projectId: id }, { jobId: approved ? `${id}-approved` : id });
+  return researchQueue.add(
+    "run",
+    { projectId: id },
+    { jobId: approved ? `${id}-approved` : id },
+  );
 }
