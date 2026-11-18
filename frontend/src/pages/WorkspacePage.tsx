@@ -1,14 +1,14 @@
-import type { AuthSession } from "../../../../shared/auth";
+import type { AuthSession } from "../../../shared/auth";
 import type { ReactNode } from "react";
-import { HelpDialog } from "../../components/HelpDialog";
-import { Sidebar } from "../../components/SideBar";
-import { Topbar } from "../../components/Topbar";
-import { useResearchWorkspace } from "../../hooks/useResearchWorkspace";
-import "../../research.css";
-import { HistoryPage } from "../history/HistoryPage";
-import { HomePage } from "../home/HomePage";
-import { ResearchPage } from "../research/ResearchPage";
-import { TemplatesPage } from "../templates/TemplatesPage";
+import { HelpDialog } from "../components/HelpDialog";
+import { Sidebar } from "../components/SideBar";
+import { Topbar } from "../components/Topbar";
+import { useResearchWorkspace } from "../hooks/useResearchWorkspace";
+import "../research.css";
+import { HistoryPage } from "./HistoryPage";
+import { HomePage } from "./HomePage";
+import { ResearchPage } from "./ResearchPage";
+import { TemplatesPage } from "./TemplatesPage";
 export const WorkspacePage = ({
   accountControls,
   user,

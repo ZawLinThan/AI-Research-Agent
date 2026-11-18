@@ -7,11 +7,11 @@ import {
   getSession,
   onSessionChange,
 } from "./lib/authApi";
-import { Login } from "./pages/login/Login";
-import { Recover } from "./pages/recover/Recover";
-import { ResetPassword } from "./pages/reset/ResetPassword";
-import { Signup } from "./pages/signup/Signup";
-import { WorkspacePage } from "./pages/workspace/WorkspacePage";
+import { Login } from "./pages/Login";
+import { Recover } from "./pages/Recover";
+import { ResetPassword } from "./pages/ResetPassword";
+import { Signup } from "./pages/Signup";
+import { WorkspacePage } from "./pages/WorkspacePage";
 
 const authRoutes = {
   "/login": Login,

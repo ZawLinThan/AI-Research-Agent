@@ -26,7 +26,9 @@ export const ResearchComposer = ({
 >) => (
   <>
     <section className="composer" aria-label="Start research">
+      <label className="composer-label" htmlFor="research-question">What would you like to understand?</label>
       <textarea
+        id="research-question"
         ref={textarea}
         aria-label="Research question"
         value={prompt}

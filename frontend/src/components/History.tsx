@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { WorkspaceViewProps } from "../hooks/useResearchWorkspace";
 import { labels } from "../lib/researchPresentation";
+import { ResearchRowSkeleton } from "../skeletons/components/ResearchRowSkeleton";
 export const History = ({
   page,
   projects,
@@ -31,7 +32,7 @@ export const History = ({
 >) => (
   <section className="research-section">
     <div className="section-heading">
-      <h2>{page === "Source library" ? "Browse evidence by research" : ""}</h2>
+      <h2>{page === "Source library" ? "Browse evidence by research" : page === "Overview" ? "Recent research" : "Your research"}</h2>
       <span className="number-pill">{projects.length}</span>
     </div>
     {!userId ? (
@@ -59,9 +60,10 @@ export const History = ({
           </label>
         </div>
         {loading ? (
-          <p className="empty-search" role="status">
-            Loading your research…
-          </p>
+          <div role="status" aria-label="Loading your research">
+            <span className="sr-only">Loading your research…</span>
+            {Array.from({ length: 3 }, (_, index) => <ResearchRowSkeleton key={index} />)}
+          </div>
         ) : !visible.length ? (
           <p className="empty-search">
             {query

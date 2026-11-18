@@ -1,9 +1,10 @@
-import { PlanReview } from "../../components/PlanReview";
+import { PlanReview } from "../components/PlanReview";
 import { ArrowLeft, Download } from "lucide-react";
-import { ReportView } from "../../components/ReportView";
-import { ResearchProgress } from "../../components/ResearchProgress";
-import { SourceList } from "../../components/SourceList";
-import type { WorkspaceViewProps } from "../../hooks/useResearchWorkspace";
+import { ReportView } from "../components/ReportView";
+import { ResearchProgress } from "../components/ResearchProgress";
+import { SourceList } from "../components/SourceList";
+import type { WorkspaceViewProps } from "../hooks/useResearchWorkspace";
+import { ResearchSkeletonPage } from "../skeletons/pages/ResearchSkeletonPage";
 export const ResearchPage = (view: WorkspaceViewProps) => {
   const { open, userId, onLogin, detail, download } = view;
   return (
@@ -20,7 +21,7 @@ export const ResearchPage = (view: WorkspaceViewProps) => {
           </button>
         </section>
       ) : !detail ? (
-        <p role="status">Loading research…</p>
+        <ResearchSkeletonPage />
       ) : (
         <>
           <div className="page-heading">

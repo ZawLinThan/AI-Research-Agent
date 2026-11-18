@@ -586,3 +586,23 @@
 .auth-submit:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
+
+/* Auth screens share the workspace palette and type hierarchy. */
+.auth-layout { background: #f7f8f5; }
+.auth-story { background: #e7efe9; border-color: #cbd8d1; }
+.story-content h1 { color: var(--color-text); font-family: "DM Serif Display", Georgia, serif; font-weight: 400; letter-spacing: -.04em; line-height: 1.08; }
+.story-content h1 em { color: #23685a; font-family: inherit; }
+.story-content > p { font-size: 16px; line-height: 1.6; }
+.auth-kicker { font-size: 11px; font-weight: 700; letter-spacing: .14em; }
+.auth-main { background: #fdfefd; }
+.auth-form-wrap { max-width: 390px; }
+.auth-form-wrap h2 { font-family: "DM Serif Display", Georgia, serif; font-size: 38px; font-weight: 400; letter-spacing: -.03em; }
+.auth-description { font-size: 14px; line-height: 1.6; }
+.auth-field input { min-height: 48px; border-radius: 9px; font-size: 16px; }
+.auth-submit { min-height: 48px; border-radius: 9px; font-weight: 650; }
+.auth-top { font-size: 12px; }
+@media (max-width: 700px) {
+  .auth-story { background: #e7efe9; }
+  .auth-main { min-height: calc(100dvh - 82px); }
+  .auth-form-wrap h2 { font-size: 34px; }
+}
