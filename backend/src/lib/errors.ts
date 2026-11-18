@@ -31,10 +31,10 @@ export class ModelOutputError extends Error {
 export const modelValidationDetails = (error: unknown) =>
   error instanceof ModelOutputError
     ? {
-        kind: error.kind,
-        issues: error.issues,
-        correctionAttempted: error.correctionAttempted,
-      }
+      kind: error.kind,
+      issues: error.issues,
+      correctionAttempted: error.correctionAttempted,
+    }
     : undefined;
 
 export function retryable(error: unknown) {
@@ -63,8 +63,14 @@ export function publicError(error: unknown) {
     response?: { status?: number };
     provider?: string;
   };
+
   if ((details?.status ?? details?.response?.status) === 429) {
-    return `${details.provider === "openrouter" ? "The AI provider" : details.provider === "exa" ? "The search provider" : "A research provider"} is rate-limiting requests. Please try again after its allowance resets.`;
+    return `${details.provider === "openrouter"
+      ? "The AI provider"
+      : details.provider === "exa"
+        ? "The search provider"
+        : "A research provider"} is rate-limiting requests. 
+            Please try again after its allowance resets.`;
   }
 
   if (error instanceof PermanentError) {

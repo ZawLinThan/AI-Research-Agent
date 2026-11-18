@@ -3,6 +3,7 @@
 export function truncateUtf8(text: string, maxBytes: number): string {
   let bytes = 0,
     end = 0;
+
   for (const char of text) {
     const size = Buffer.byteLength(char);
 

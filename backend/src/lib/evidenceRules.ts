@@ -1,2 +1,11 @@
 export const evidenceInterpretationRules =
-  "Require complete sentences and reject cut-off claims or vague judgments such as strong capital without a stated measure and benchmark. Verify the exact legal entity, metric, unit, period, and row/column headers for every numerical interpretation. A subsidiary's data must not be attributed to its parent or another subsidiary. Preserve distinguishing geographic and legal names. Absolute capital dollars are not capital ratios or evidence of regulatory compliance. Adjacent table values may be years for ONE company, not separate competitors. Excerpts may end mid-word or mid-row: never treat a cut-off entity name as a complete legal name. Missing headers or incomplete names require more context or omission, never guessing. Compare compatible periods and accounting bases. Retrieval date is not the observation date. A quote matching source text does not by itself validate its interpretation. Differences between entities or periods, and missing information, are not contradictory evidence.";
+  "Require complete sentences and reject cut-off claims or vague judgments such as strong capital \
+  without a stated measure and benchmark. Verify the exact legal entity, metric, unit, period, and \
+  row/column headers for every numerical interpretation. A subsidiary's data must not be attributed \
+  to its parent or another subsidiary. Preserve distinguishing geographic and legal names. Absolute \
+  capital dollars are not capital ratios or evidence of regulatory compliance. Adjacent table values \
+  may be years for ONE company, not separate competitors. Excerpts may end mid-word or mid-row: never \
+  treat a cut-off entity name as a complete legal name. Missing headers or incomplete names require \
+  more context or omission, never guessing. Compare compatible periods and accounting bases. Retrieval \
+  date is not the observation date. A quote matching source text does not by itself validate its \
+  interpretation. Differences between entities or periods, and missing information, are not contradictory evidence.";

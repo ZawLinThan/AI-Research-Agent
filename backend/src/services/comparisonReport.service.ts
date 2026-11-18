@@ -79,24 +79,24 @@ export function comparisonRows(analysis: Analysis, state: Checkpoint) {
         .join("|");
       const duplicate = values
         ? cell.findingIndexes.find((existing) => {
-            const ids =
-              state.reportClaims!.find(
-                (c) => c.text === analysis.findings[existing]!.claim,
-              )?.evidenceIds ?? [];
+          const ids =
+            state.reportClaims!.find(
+              (c) => c.text === analysis.findings[existing]!.claim,
+            )?.evidenceIds ?? [];
 
-            return (
-              ids
-                .map((id) =>
-                  records
-                    .get(id)
-                    ?.value?.toLowerCase()
-                    .replace(/[,$\s]/g, ""),
-                )
-                .filter(Boolean)
-                .sort()
-                .join("|") === values
-            );
-          })
+          return (
+            ids
+              .map((id) =>
+                records
+                  .get(id)
+                  ?.value?.toLowerCase()
+                  .replace(/[,$\s]/g, ""),
+              )
+              .filter(Boolean)
+              .sort()
+              .join("|") === values
+          );
+        })
         : undefined;
 
       if (duplicate === undefined) {
@@ -125,6 +125,7 @@ export function comparisonRows(analysis: Analysis, state: Checkpoint) {
       ) ?? [],
     ),
   ];
+
   for (const metric of plannedMetrics) {
     if (![...groups.values()].some((row) => row.metric === metric)) {
       groups.set(metric, {
@@ -147,6 +148,7 @@ export function comparisonRows(analysis: Analysis, state: Checkpoint) {
       order(b.period) - order(a.period) ||
       a.basis.localeCompare(b.basis),
   );
+
   return { entities, rows, currentDate: state.plan!.brief!.currentDate };
 }
 
@@ -179,11 +181,15 @@ export async function createComparisonReportLayout(
       ),
   );
   const coverageSummary = complete.length
-    ? `The retained evidence covers all requested entities for ${[...new Set(complete.map((row) => `${row.metric} (${row.period})`))].join(", ")}.${incomplete.length ? " Other metric-period comparisons have gaps, shown in the table." : ""}`
-    : "The retained evidence supports individual findings, but no metric-period group covers every requested entity. The table shows available findings and the remaining gaps.";
+    ? `The retained evidence covers all requested entities for \
+      ${[...new Set(complete.map((row) => `${row.metric} (${row.period})`))].join(", ")}.\
+      ${incomplete.length ? " Other metric-period comparisons have gaps, shown in the table." : ""}`
+    : "The retained evidence supports individual findings, but no metric-period group covers every requested entity. \
+      The table shows available findings and the remaining gaps.";
   const limitations = incomplete.map(
     (row) =>
-      `${row.metric} (${row.period}): no supported finding for ${comparison.entities.filter((entity) => !row.coveredEntities?.includes(entity)).join(", ")}.`,
+      `${row.metric} (${row.period}): no supported finding for 
+      ${comparison.entities.filter((entity) => !row.coveredEntities?.includes(entity)).join(", ")}.`,
   );
 
   if (
@@ -194,7 +200,8 @@ export async function createComparisonReportLayout(
     )
   ) {
     limitations.push(
-      "Some source excerpts do not establish a common accounting basis; their figures should not be treated as directly comparable.",
+      "Some source excerpts do not establish a common accounting basis; \
+      their figures should not be treated as directly comparable.",
     );
   }
 
@@ -207,7 +214,8 @@ export async function createComparisonReportLayout(
     !/\b20\d{2}\b/.test(question)
   ) {
     limitations.push(
-      `No ${year} interim reporting period appears in the retained evidence. The latest available quarter as of ${comparison.currentDate} has not been established.`,
+      `No ${year} interim reporting period appears in the retained evidence. 
+      The latest available quarter as of ${comparison.currentDate} has not been established.`,
     );
   }
 
@@ -223,7 +231,13 @@ export async function createComparisonReportLayout(
   // they cannot invalidate a supported, appropriately qualified introduction.
   for (let attempt = 0; findings.length && attempt < 2; attempt++) {
     const candidate = await structured(
-      "Write a concise introduction to the comparison using ONLY supplied verified findings. Return summary and overview (supporting finding indexes). Discuss the main supported differences. Do not describe missing evidence, unavailable figures, or which entities lack coverage; a deterministic coverage statement will be appended separately. Do not rank entities or recommend investments unless a supplied finding directly supports it. Preserve metric definitions and periods. Every factual assertion must be supported by the listed indexes. Apply review feedback if present.",
+      "Write a concise introduction to the comparison using ONLY supplied verified findings. \
+      Return summary and overview (supporting finding indexes). Discuss the main supported \
+      differences. Do not describe missing evidence, unavailable figures, or which entities \
+      lack coverage; a deterministic coverage statement will be appended separately. Do not \
+      rank entities or recommend investments unless a supplied finding directly supports it. \
+      Preserve metric definitions and periods. Every factual assertion must be supported by \
+      the listed indexes. Apply review feedback if present.",
       {
         question,
         currentDate: comparison.currentDate,
@@ -271,21 +285,27 @@ export async function createComparisonReportLayout(
       attempt > 0 && validReferences
         ? { valid: true, reason: "Valid references." }
         : await structured(
-            "Check ONLY whether every assertion in this introduction is supported by its linked verified findings or supplied coverage metadata. Return valid and reason. Incomplete evidence is acceptable when clearly qualified; do not reject for failing to answer dimensions with no evidence. Reject unsupported comparisons, changed entities/numbers/periods, invented rankings, causal leaps and recommendations. Do not reject accurate wording merely because it resembles the verified claims.",
-            {
-              question,
-              summary: candidate.summary,
-              findings: indexes.map((index) => ({
-                index,
-                claim: analysis.findings[index]!.claim,
-              })),
-              coverage: coverageSummary,
-              limitations,
-            },
-            z.object({ valid: z.boolean(), reason: z.string() }),
-            signal,
-            400,
-          );
+          "Check ONLY whether every assertion in this introduction is supported by its linked \
+          verified findings or supplied coverage metadata. Return valid and reason. Incomplete \
+          evidence is acceptable when clearly qualified; do not reject for failing to answer \
+          dimensions with no evidence. Reject unsupported comparisons, changed entities/numbers/periods, \
+          invented rankings, causal leaps and recommendations. Do not reject accurate wording merely \
+          because it resembles the verified claims.",
+          {
+            question,
+            summary: candidate.summary,
+            findings: indexes.map((index) => ({
+              index,
+              claim: analysis.findings[index]!.claim,
+            })),
+            coverage: coverageSummary,
+            limitations,
+          },
+          z.object({ valid: z.boolean(), reason: z.string() }),
+          signal,
+          400,
+        );
+
     if (review.valid) {
       summary = `${candidate.summary} ${coverageSummary}`;
       overview = indexes;
@@ -303,6 +323,7 @@ export async function createComparisonReportLayout(
       introduction: overview.length ? "verified" : "coverage",
     }),
   );
+
   return {
     summary,
     overview,

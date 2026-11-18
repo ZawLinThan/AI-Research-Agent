@@ -10,13 +10,16 @@
     "db:generate": "npx drizzle-kit generate",
     "db:migrate": "tsx backend/scripts/migrate.ts",
     "worker": "tsx watch backend/src/worker_runner.ts",
-    "typecheck": "tsc -p backend/tsconfig.json"
+    "typecheck": "tsc -p backend/tsconfig.json",
+    "lint-fix": "npx eslint --fix backend/src/**/*.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^6.0.1",
     "@supabase/server": "^1.5.3",
     "@supabase/supabase-js": "^2.116.0",
     "axios": "^1.20.0",
@@ -24,13 +27,18 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "eslint": "^10.15.0",
+    "eslint-plugin-jsdoc": "^63.3.3",
     "exa-js": "^2.19.0",
     "express": "^5.2.1",
     "ioredis": "^6.0.0",
+    "jiti": "^2.7.0",
+    "lint": "^1.2.2",
     "openai": "^7.10.0",
     "postgres": "^3.4.9",
     "redis": "^6.2.1",
     "tsx": "^4.23.13",
+    "typescript-eslint": "^8.73.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {

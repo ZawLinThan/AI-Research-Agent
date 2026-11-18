@@ -8,10 +8,10 @@ export function createRedis(worker = false) {
     connectTimeout: 3000,
     ...(!env.REDIS_URL
       ? {
-          host: env.REDIS_HOST,
-          port: env.REDIS_PORT,
-          password: env.REDIS_PASSWORD || undefined,
-        }
+        host: env.REDIS_HOST,
+        port: env.REDIS_PORT,
+        password: env.REDIS_PASSWORD || undefined,
+      }
       : {}),
   };
 

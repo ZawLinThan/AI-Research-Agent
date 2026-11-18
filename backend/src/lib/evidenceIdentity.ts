@@ -236,7 +236,7 @@ export function evidenceGroups(records: EvidenceRecord[]) {
 
 export function growthConsistencyIssue(claim: string): string | undefined {
   const match = claim.match(
-    /\$([\d,.]+)\s*(billion|million)\b.{0,50}?\b(up|down)\s*([\d.]+)%\s*(?:YoY|year.over.year)?\s*from\s*\$([\d,.]+)\s*(billion|million)\b/i,
+    /\$([\d,.]+)\s*(billion|million)\b.{0,50}?\b(up|down)\s*([\d.]+)%\s\*(?:YoY|year.over.year)?\s*from\s*\$([\d,.]+)\s*(billion|million)\b/i,
   );
 
   if (!match || match[2]!.toLowerCase() !== match[6]!.toLowerCase()) {

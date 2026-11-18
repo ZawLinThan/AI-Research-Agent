@@ -268,21 +268,37 @@ test("verification receives table provenance and surfaces rejected comparisons a
     highlights: ["Market capitalization 670,618 489,320 393,484"],
   };
   const claim = {
-    claim: "JPMorgan, Bank of America and Wells Fargo had market capitalizations of 670,618, 489,320 and 393,484 million respectively.",
+    claim:
+      "JPMorgan, Bank of America and Wells Fargo had market capitalizations of 670,618, 489,320 and 393,484 million respectively.",
     evidence: [{ sourceId: tableSource.id, quote: tableSource.highlights[0] }],
   };
   t.mock.method(client.chat.completions, "create", async (request: any) => {
     const input = JSON.parse(request.messages[1].content);
     assert.equal(input.findings[0].evidence[0].sourceTitle, tableSource.title);
     assert.equal(input.findings[0].evidence[0].sourceUrl, tableSource.url);
-    assert.equal(input.findings[0].evidence[0].quote, tableSource.highlights[0]);
-    assert.match(request.messages[0].content, /successive years for one entity/);
-    assert.match(request.messages[0].content, /subsidiaries from parent groups/);
+    assert.equal(
+      input.findings[0].evidence[0].quote,
+      tableSource.highlights[0],
+    );
+    assert.match(
+      request.messages[0].content,
+      /successive years for one entity/,
+    );
+    assert.match(
+      request.messages[0].content,
+      /subsidiaries from parent groups/,
+    );
     return { choices: [{ message: { content: '{"supported":[]}' } }] };
   });
-  const verified = await verifyFindings("JPM vs BOFA vs Wells Fargo", {
-    findings: [claim], gaps: [], followUpQueries: [],
-  }, [tableSource]);
+  const verified = await verifyFindings(
+    "JPM vs BOFA vs Wells Fargo",
+    {
+      findings: [claim],
+      gaps: [],
+      followUpQueries: [],
+    },
+    [tableSource],
+  );
   assert.deepEqual(verified.findings, []);
   assert.match(verified.gaps[0], /omitted/);
 });

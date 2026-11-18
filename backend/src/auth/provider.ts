@@ -14,10 +14,10 @@ const userSchema = z
   .object({
     id: z.string().uuid(),
     email: z.string().optional(),
-    user_metadata: z.unknown().optional(),
+    userMetadata: z.unknown().optional(),
   })
-  .transform(({ id, email, user_metadata }) => {
-    const metadata = user_metadata as Record<string, unknown> | null;
+  .transform(({ id, email, userMetadata }) => {
+    const metadata = userMetadata as Record<string, unknown> | null;
     const name =
       metadata && typeof metadata === "object"
         ? (metadata.full_name ?? metadata.name)

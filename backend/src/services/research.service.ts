@@ -147,8 +147,7 @@ export async function getResearch(id: string, owner: string) {
   }
 
   const rows = await db.select().from(sources).where(eq(sources.projectId, id));
-  const { checkpoint, runToken, ownerId, requestId, startedAt, ...visible } =
-    project;
+  const {...visible } = project;
   const stageRows = await db
     .select()
     .from(stages)
@@ -187,9 +186,9 @@ export async function approveResearchPlan(
     plannedQueries: plan.queries.map((query, i) => ({
       ...(plan.plannedQueries?.[i] ??
         existing.researchPlan?.plannedQueries?.[i] ?? {
-          informationNeed: query,
-          entities: [],
-        }),
+        informationNeed: query,
+        entities: [],
+      }),
       id: `Q${i + 1}`,
       query,
     })),
@@ -205,6 +204,7 @@ export async function approveResearchPlan(
     try {
       const review = await reviewPlan(existing.question, plan);
       plan.reviews = [...(plan.reviews ?? []), review];
+
       if (!review.valid) {
         plan.warnings = [
           ...new Set([

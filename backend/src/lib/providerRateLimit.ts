@@ -92,7 +92,9 @@ export class RedisProviderGate implements ProviderGate {
   async acquire(tokens: number) {
     if (tokens > this.tpm) {
       throw new PermanentError(
-        `This research request needs an estimated ${Math.ceil(tokens)} tokens, exceeding the configured AI token-per-minute limit of ${this.tpm}. Narrow the question or configure the allowance for your provider plan.`,
+        `This research request needs an estimated ${Math.ceil(tokens)} tokens, 
+        exceeding the configured AI token-per-minute limit of ${this.tpm}. 
+        Narrow the question or configure the allowance for your provider plan.`,
       );
     }
 
@@ -207,6 +209,7 @@ export const scheduleProviderRequest = async <T>(
 ) => {
   try {
     const scheduler = schedulers.get(provider);
+
     return scheduler
       ? await scheduler.run(provider, tokens, signal, request)
       : await request();

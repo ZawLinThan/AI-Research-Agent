@@ -14,6 +14,7 @@ export async function fetchSourceContext(
 ): Promise<string> {
   const response = await scheduleProviderRequest("exa", 0, signal, async () => {
     await beforeProviderCall();
+
     return axios.post(
       "https://api.exa.ai/contents",
       {

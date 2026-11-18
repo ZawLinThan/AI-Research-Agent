@@ -63,6 +63,7 @@ export function selectSources(
         .map((v) => v.slice(0, 1500)),
     });
   }
+
   return [...map.values()]
     .sort((a, b) => b.queries.length - a.queries.length)
     .slice(0, limit);
@@ -90,23 +91,23 @@ export function filterAnalysisFindings(
     findings,
     ...(analysis.topics
       ? {
-          topics: analysis.topics
-            .map((topic) => ({
-              ...topic,
-              findingIndexes: indexes(topic.findingIndexes),
-            }))
-            .filter((topic) => topic.findingIndexes.length),
-        }
+        topics: analysis.topics
+          .map((topic) => ({
+            ...topic,
+            findingIndexes: indexes(topic.findingIndexes),
+          }))
+          .filter((topic) => topic.findingIndexes.length),
+      }
       : {}),
     ...(analysis.disagreements
       ? {
-          disagreements: analysis.disagreements
-            .map((disagreement) => ({
-              ...disagreement,
-              findingIndexes: indexes(disagreement.findingIndexes),
-            }))
-            .filter((disagreement) => disagreement.findingIndexes.length > 1),
-        }
+        disagreements: analysis.disagreements
+          .map((disagreement) => ({
+            ...disagreement,
+            findingIndexes: indexes(disagreement.findingIndexes),
+          }))
+          .filter((disagreement) => disagreement.findingIndexes.length > 1),
+      }
       : {}),
   };
 }
@@ -116,6 +117,7 @@ export function groundedFindings(
   sources: Source[],
 ): Analysis {
   const map = new Map(sources.map((s) => [s.id, s]));
+
   return filterAnalysisFindings(
     analysis,
     (finding) =>
@@ -199,7 +201,22 @@ export async function analyzeEvidence(
     }
 
     const batch = await structured(
-      'Analyze the supplied excerpts. Return {"findings":[{"claim":"a precise factual claim","excerptIds":["provided excerpt ID"]}],"gaps":["unanswered question or contradiction"]}. For excerptIds, copy the excerptId value exactly from the supplied excerpts; do not use sourceId or invent IDs. Aim for 4–6 distinct, useful findings from this batch when the evidence supports them, each under 600 characters. Start with findings that directly answer the question, then cover specific dimensions with concrete facts, relevant numbers, dates, examples, comparisons, and qualifications. Write complete, plain-English sentences; explain technical terms and remove extraction markup. Do not pad or repeat findings to meet a count. excerptIds must be an array of exactly one or two distinct strings, never more than two. Select the strongest evidence that directly supports the whole claim. Do not generate quotations. If evidence is inadequate return fewer or no findings. Identify conflicting evidence and limitations. gaps must be an array of at most five plain strings, each under 300 characters; never objects, arrays, nulls, or numbers. Example: "gaps":["Comparable figures for the same year were not available."]. Return only findings and gaps; include both fields even when empty. Follow-up searches have already been handled by the search pipeline. ' + evidenceInterpretationRules,
+      'Analyze the supplied excerpts. Return {"findings":[{"claim":"a precise factual claim"\
+      ,"excerptIds":["provided excerpt ID"]}],"gaps":["unanswered question or contradiction"]}. \
+      For excerptIds, copy the excerptId value exactly from the supplied excerpts; do not use \
+      sourceId or invent IDs. Aim for 4–6 distinct, useful findings from this batch when the \
+      evidence supports them, each under 600 characters. Start with findings that directly answer \
+      the question, then cover specific dimensions with concrete facts, relevant numbers, dates, \
+      examples, comparisons, and qualifications. Write complete, plain-English sentences; explain \
+      technical terms and remove extraction markup. Do not pad or repeat findings to meet a count. \
+      excerptIds must be an array of exactly one or two distinct strings, never more than two. \
+      Select the strongest evidence that directly supports the whole claim. Do not generate quotations. \
+      If evidence is inadequate return fewer or no findings. Identify conflicting evidence and limitations. \
+      gaps must be an array of at most five plain strings, each under 300 characters; never objects, arrays, \
+      nulls, or numbers. Example: "gaps":["Comparable figures for the same year were not available."]. \
+      Return only findings and gaps; include both fields even when empty. Follow-up searches have already \
+      been handled by the search pipeline. ' +
+        evidenceInterpretationRules,
       { question, excerpts: batchExcerpts },
       selectionSchema,
       signal,
@@ -238,6 +255,7 @@ export async function analyzeEvidence(
       .map((id) => byId.get(id) ?? bySourceId.get(id))
       .filter((excerpt): excerpt is (typeof excerpts)[number] => !!excerpt)
       .map((excerpt) => ({ sourceId: excerpt.sourceId, quote: excerpt.text }));
+
     // Unknown IDs are treated as unsupported evidence, not as a failed run.
     return evidence.length ? [{ claim: finding.claim, evidence }] : [];
   });
@@ -253,5 +271,6 @@ export async function analyzeEvidence(
   );
 
   console.log("Grounded Finding Results: ", groundedFindingsResult);
+
   return groundedFindingsResult;
 }

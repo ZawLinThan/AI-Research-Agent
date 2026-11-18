@@ -1,6 +1,5 @@
 import { comparisonCoverageGaps } from "../services/evidenceReport.service.js";
 import { planIssues } from "../services/planner.service.js";
-import { reviewSearch } from "../services/search.service.js";
 import { highlightSources } from "../services/highlightReport.service.js";
 import { selectSources } from "../services/evidence.service.js";
 import { PermanentError, RunStopped } from "../lib/errors.js";
@@ -87,6 +86,7 @@ export async function runPipeline(
     }
 
     dirty = false;
+
     return queueSave(dirtyStatus, dirtyProgress);
   };
 
@@ -117,7 +117,11 @@ export async function runPipeline(
     }
 
     dirty = false;
-    if (status !== currentStage) logStage(status);
+
+    if (status !== currentStage) {
+      logStage(status);
+    }
+
     await queueSave(status, progress, report);
   };
 
@@ -146,7 +150,10 @@ export async function runPipeline(
     progress: number,
     action: () => Promise<T>,
   ) => {
-    if (status !== currentStage) logStage(status);
+    if (status !== currentStage) {
+      logStage(status);
+    }
+
     activeStatus = status;
     activeProgress = progress;
 
@@ -220,8 +227,8 @@ export async function runPipeline(
       const sources = highlightSources(state.searches[query] ?? []);
       const summary = sources.some((source) => source.highlights.length)
         ? await execute("analyzing", 60, () =>
-            deps.highlights!.summarize(record.question, query, sources, signal),
-          )
+          deps.highlights!.summarize(record.question, query, sources, signal),
+        )
         : { summary: "No source highlights were retrieved for this query." };
 
       progress.summaries = { ...progress.summaries, [query]: summary };
@@ -302,27 +309,27 @@ export async function runPipeline(
   const reviewPromise =
     !state.searchReview && deps.reviewSearch
       ? execute("analyzing", 56, () =>
-          deps.reviewSearch!(
-            record.question,
-            state.plan!,
-            state.searches!,
-            signal,
-          ),
-        ).then((review) => {
-          state.searchReview = review;
-        })
+        deps.reviewSearch!(
+          record.question,
+          state.plan!,
+          state.searches!,
+          signal,
+        ),
+      ).then((review) => {
+        state.searchReview = review;
+      })
       : Promise.resolve();
   const extractionPromise =
     !state.analysis && deps.extractRecords
       ? execute("analyzing", 60, () =>
-          deps.extractRecords!(
-            record.question,
-            state.sources!,
-            state,
-            signal,
-            () => markDirty("analyzing", 65),
-          ),
-        )
+        deps.extractRecords!(
+          record.question,
+          state.sources!,
+          state,
+          signal,
+          () => markDirty("analyzing", 65),
+        ),
+      )
       : Promise.resolve();
 
   await Promise.all([reviewPromise, extractionPromise]);
@@ -332,16 +339,16 @@ export async function runPipeline(
     state.analysis = await execute("analyzing", 60, () =>
       deps.synthesize && state.evidenceRecords
         ? deps.synthesize(
-            record.question,
-            state.evidenceRecords,
-            state.sources!,
-            state,
-            signal,
-          )
+          record.question,
+          state.evidenceRecords,
+          state.sources!,
+          state,
+          signal,
+        )
         : deps.analyzeQueries
           ? deps.analyzeQueries(record.question, state, signal, () =>
-              markDirty("analyzing", 65),
-            )
+            markDirty("analyzing", 65),
+          )
           : deps.analyze(record.question, state.sources!, signal),
     );
 
@@ -416,35 +423,35 @@ export async function runPipeline(
   ) {
     state.reportLayout = deps.present
       ? await execute("generating_report", 94, () =>
-          deps.present!(record.question, state.verified!, signal, state),
-        )
+        deps.present!(record.question, state.verified!, signal, state),
+      )
       : {
-          overview: [],
-          sections: [
-            {
-              heading: "Key findings",
-              findingIndexes: state.verified!.findings.map((_, i) => i),
-            },
-          ],
-        };
+        overview: [],
+        sections: [
+          {
+            heading: "Key findings",
+            findingIndexes: state.verified!.findings.map((_, i) => i),
+          },
+        ],
+      };
 
     await save("generating_report", 97);
   }
 
   state.reportClaims = state.reportClaims
     ? state.reportClaims.filter((c) =>
-        state.verified!.findings.some((f) => f.claim === c.text),
-      )
+      state.verified!.findings.some((f) => f.claim === c.text),
+    )
     : state.verified.findings.map((f) => ({
-        text: f.claim,
-        evidenceIds: (state.evidenceRecords ?? [])
-          .filter(
-            (e) =>
-              e.claim === f.claim &&
+      text: f.claim,
+      evidenceIds: (state.evidenceRecords ?? [])
+        .filter(
+          (e) =>
+            e.claim === f.claim &&
               f.evidence.some((q) => q.quote === e.quote),
-          )
-          .map((e) => e.id),
-      }));
+        )
+        .map((e) => e.id),
+    }));
 
   if (state.reportClaims.some((c) => !c.evidenceIds.length)) {
     throw new PermanentError(

@@ -107,7 +107,6 @@ its startup command. Use `compose.research.yml` for a named data volume and
 explicit AOF startup configuration. It has not replaced the existing container;
 plan migration of existing data before recreating that service.
 
-
 ### Provider-call budget
 
 `RESEARCH_MAX_PROVIDER_CALLS` defaults to 140 and must be a positive integer.
@@ -152,7 +151,6 @@ excerpts within the same scheduler estimates without changing quoted substrings.
 See https://openrouter.ai/docs/api/reference/limits for response-header semantics and
 check your own account limits in the OpenRouter dashboard. Logs include the provider and
 retry delay; the user sees a rate-limit-specific message when retries are exhausted.
-
 
 ### Report presentation and evidence detail
 

@@ -6,11 +6,11 @@ This comparison uses full-year 2025 results for the three consolidated parent co
 
 Dollar amounts are in billions, rounded. Income-statement figures cover January–December 2025; capital ratios are at December 31, 2025. Revenue uses reported figures rather than JPMorgan's managed revenue or Bank of America's fully taxable-equivalent revenue.
 
-| Measure | JPMorgan Chase & Co. | Bank of America Corporation | Wells Fargo & Company |
-|---|---:|---:|---:|
-| Reported annual revenue, net of interest expense | $182.4 | $113.1 | $83.7 |
-| Annual net income | $57.0 | $30.5 | $21.3 |
-| Standardized CET1 ratio at year-end | 14.5% | 11.4% | 10.6% |
+| Measure                                          | JPMorgan Chase & Co. | Bank of America Corporation | Wells Fargo & Company |
+| ------------------------------------------------ | -------------------: | --------------------------: | --------------------: |
+| Reported annual revenue, net of interest expense |               $182.4 |                      $113.1 |                 $83.7 |
+| Annual net income                                |                $57.0 |                       $30.5 |                 $21.3 |
+| Standardized CET1 ratio at year-end              |                14.5% |                       11.4% |                 10.6% |
 
 Sources: JPMorgan's [2025 financial statements](https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/jpm-20251231.htm) and [year-end capital disclosure](https://www.sec.gov/Archives/edgar/data/19617/000162828026001902/a4q25erfexhibit991narrative.htm); Bank of America's [2025 earnings release and financial tables](https://investor.bankofamerica.com/regulatory-and-other-filings/select-sec-filings/content/0000070858-26-000020/bac12312025ex991.htm); Wells Fargo's [2025 annual report](https://www.wellsfargo.com/assets/pdf/about/investor-relations/annual-reports/2025-annual-report.pdf) and [year-end earnings release](https://www.wellsfargo.com/assets/pdf/about/investor-relations/earnings/fourth-quarter-2025-earnings.pdf). Wells Fargo identified the year-end CET1 figure in that release as a preliminary estimate.
 

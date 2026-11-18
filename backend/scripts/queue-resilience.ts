@@ -101,35 +101,58 @@ async function main() {
     console.log("PASS worker crash recovery with saved checkpoint");
     await worker.close();
     worker = undefined;
-    let attempts = 0, aborted = false;
+    let attempts = 0,
+      aborted = false;
     const lockErrors: string[] = [];
-    worker = new Worker("resilience", async (job, _token, signal) => {
-      attempts++;
-      if (attempts > 1) {
-        assert.equal(await connection.get("lock-loss-checkpoint"), "searched");
-        return "resumed after lock loss";
-      }
-      await connection.set("lock-loss-checkpoint", "searched");
-      // Remove only this isolated test job's lease to reproduce renewal failure.
-      await connection.del(`${queue.toKey(job.id!)}:lock`);
-      try {
-        await new Promise<void>((_, reject) => {
-          signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
-        });
-      } catch {
-        aborted = true;
-        deferLostLock(signal);
-        throw new Error("Lost-lock work must defer to stalled recovery");
-      }
-    }, { connection, lockDuration: 1000, lockRenewTime: 200, stalledInterval: 1000 });
-    worker.on("lockRenewalFailed", ids => cancelLostLocks(worker!, ids));
-    worker.on("error", error => lockErrors.push(error.message));
+    worker = new Worker(
+      "resilience",
+      async (job, _token, signal) => {
+        attempts++;
+        if (attempts > 1) {
+          assert.equal(
+            await connection.get("lock-loss-checkpoint"),
+            "searched",
+          );
+          return "resumed after lock loss";
+        }
+        await connection.set("lock-loss-checkpoint", "searched");
+        // Remove only this isolated test job's lease to reproduce renewal failure.
+        await connection.del(`${queue.toKey(job.id!)}:lock`);
+        try {
+          await new Promise<void>((_, reject) => {
+            signal!.addEventListener("abort", () => reject(signal!.reason), {
+              once: true,
+            });
+          });
+        } catch {
+          aborted = true;
+          deferLostLock(signal);
+          throw new Error("Lost-lock work must defer to stalled recovery");
+        }
+      },
+      {
+        connection,
+        lockDuration: 1000,
+        lockRenewTime: 200,
+        stalledInterval: 1000,
+      },
+    );
+    worker.on("lockRenewalFailed", (ids) => cancelLostLocks(worker!, ids));
+    worker.on("error", (error) => lockErrors.push(error.message));
     const lost = await queue.add("lost-lock", {});
     await wait(async () => (await lost.getState()) === "completed");
     assert.ok(aborted);
     assert.equal(attempts, 2);
-    assert.ok(!lockErrors.some(message => message.includes("moveToDelayed") || message.includes("moveToFinished")));
-    console.log("PASS lock loss aborts stale work and resumes its checkpoint without invalid queue transitions");
+    assert.ok(
+      !lockErrors.some(
+        (message) =>
+          message.includes("moveToDelayed") ||
+          message.includes("moveToFinished"),
+      ),
+    );
+    console.log(
+      "PASS lock loss aborts stale work and resumes its checkpoint without invalid queue transitions",
+    );
     await worker.close();
     worker = undefined;
     const preserved = await queue.add("outage", {});

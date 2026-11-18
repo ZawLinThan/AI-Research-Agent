@@ -101,6 +101,7 @@ export class Sessions {
 
     if (!raw) {
       this.clear(res);
+
       return null;
     }
 
@@ -109,6 +110,7 @@ export class Sessions {
     if (data.deadline <= Date.now()) {
       await this.store.remove(key);
       this.clear(res);
+
       return null;
     }
 
@@ -165,6 +167,7 @@ export class Sessions {
       if (error instanceof AuthError && error.status === 401) {
         await this.store.remove(key);
         this.clear(res);
+
         return null;
       }
 

@@ -78,22 +78,22 @@ export function normalizeEvidenceSelection(
     ...value,
     findings: Array.isArray(value.findings)
       ? value.findings.map((finding) => {
-          if (!isObject(finding)) {
-            return finding;
-          }
+        if (!isObject(finding)) {
+          return finding;
+        }
 
-          let ids = textList(finding.excerptIds, Number.MAX_SAFE_INTEGER);
+        let ids = textList(finding.excerptIds, Number.MAX_SAFE_INTEGER);
 
-          if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
-            // Prefer IDs actually supplied in this batch; unsupported IDs are still
-            // discarded by grounding, and the retained evidence is verified later.
-            const known = ids.filter((id) => suppliedIds.has(id));
+        if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
+          // Prefer IDs actually supplied in this batch; unsupported IDs are still
+          // discarded by grounding, and the retained evidence is verified later.
+          const known = ids.filter((id) => suppliedIds.has(id));
 
-            ids = (known.length ? known : ids).slice(0, 2);
-          }
+          ids = (known.length ? known : ids).slice(0, 2);
+        }
 
-          return { ...finding, excerptIds: ids };
-        })
+        return { ...finding, excerptIds: ids };
+      })
       : value.findings,
     gaps: (normalizeGapOutput(value) as Record<string, unknown>).gaps,
   };
@@ -167,8 +167,8 @@ export function normalizeQuerySummary(value: unknown): unknown {
     : value.unansweredQuestions;
   const requests = Array.isArray(value.needsContext)
     ? value.needsContext.map((item) =>
-        isObject(item) ? { ...item, reason: prose(item.reason, 200) } : item,
-      )
+      isObject(item) ? { ...item, reason: prose(item.reason, 200) } : item,
+    )
     : value.needsContext;
 
   // Keep every context request: silently dropping one could promote a claim
@@ -179,8 +179,8 @@ export function normalizeQuerySummary(value: unknown): unknown {
     needsContext: requests,
     disagreements: Array.isArray(value.disagreements)
       ? value.disagreements.map((item) =>
-          isObject(item) ? { ...item, topic: prose(item.topic, 100) } : item,
-        )
+        isObject(item) ? { ...item, topic: prose(item.topic, 100) } : item,
+      )
       : value.disagreements,
   };
 }

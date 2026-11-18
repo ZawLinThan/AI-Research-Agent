@@ -6,37 +6,39 @@ import type { Sessions } from "./session.js";
 
 export const csrfProtection =
   (origins: string[]): RequestHandler =>
-  (req, res, next) => {
-    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
-      return next();
-    }
+    (req, res, next) => {
+      if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+        return next();
+      }
 
-    if (
-      !origins.includes(req.headers.origin ?? "") ||
+      if (
+        !origins.includes(req.headers.origin ?? "") ||
       req.headers["x-csrf-protection"] !== "1"
-    ) {
-      res.status(403).json({ error: "Request origin could not be verified." });
-      return;
-    }
+      ) {
+        res.status(403).json({ error: "Request origin could not be verified." });
 
-    next();
-  };
+        return;
+      }
+
+      next();
+    };
 
 export const sessionUser =
   (sessions: Sessions): RequestHandler =>
-  async (req, res, next) => {
-    const session = await sessions.read(req, res);
+    async (req, res, next) => {
+      const session = await sessions.read(req, res);
 
-    if (!session) {
-      res.status(401).json({ error: "Please log in to continue." });
-      return;
-    }
+      if (!session) {
+        res.status(401).json({ error: "Please log in to continue." });
 
-    res.locals.ownerId = session.user.id;
-    res.locals.authSession = session;
+        return;
+      }
 
-    next();
-  };
+      res.locals.ownerId = session.user.id;
+      res.locals.authSession = session;
+
+      next();
+    };
 
 const credentials = z.object({
   email: z.email().max(254),
@@ -78,6 +80,7 @@ export function authRouter(
       res.status(429).json({
         error: "Too many authentication attempts. Please try again later.",
       });
+
       return;
     }
 
@@ -126,6 +129,7 @@ export function authRouter(
     const flow = await sessions.beginFlow(req, res, origin, true);
     const callback = new URL(callbackUrl ?? `${origin}/api/auth/callback`);
     callback.searchParams.set("state", flow.id);
+
     try {
       await sessions.provider.recover(email, callback.href, flow.challenge);
     } catch (error) {

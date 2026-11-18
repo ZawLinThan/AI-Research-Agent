@@ -35,6 +35,7 @@ export const createResearchPlan = async (
   try {
     const review = await deps.review(question, plan, signal);
     reviews = [review];
+
     if (!review.valid) {
       warnings.push(
         ...review.issues,
@@ -42,7 +43,7 @@ export const createResearchPlan = async (
         ...review.revisionInstructions,
       );
     }
-  } catch (error) {
+  } catch (_error) {
     if (signal?.aborted) {
       throw new RunStopped("Run stopped");
     }
@@ -60,5 +61,6 @@ export const createResearchPlan = async (
 
   const completed = { ...plan, reviews, warnings: [...new Set(warnings)] };
   await checkpoint?.(completed);
+
   return completed;
 };

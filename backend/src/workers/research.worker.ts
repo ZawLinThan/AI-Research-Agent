@@ -38,7 +38,7 @@ import {
   recoverableRuns,
   markOrphanFailed,
 } from "../services/research.service.js";
-import { analyzeEvidence, sourceId } from "../services/evidence.service.js";
+import { analyzeEvidence } from "../services/evidence.service.js";
 import {
   createReportLayout,
   verifyFindings,
@@ -61,7 +61,8 @@ configureProviderScheduler(
   new ProviderScheduler(
     new RedisProviderGate(
       producerConnection,
-      `openrouter:${process.env.OPENROUTER_RATE_LIMIT_GROUP || "default"}:${process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning"}`,
+      `openrouter:${process.env.OPENROUTER_RATE_LIMIT_GROUP || "default"}:
+      ${process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-lightning"}`,
       openRouterTokensPerMinute,
       openRouterRequestsPerMinute,
     ),
@@ -84,6 +85,7 @@ export const researchWorker = new Worker(
     }
 
     const { project, token } = claimed;
+
     return workerLogging.run(
       {
         id: project.id,
@@ -187,7 +189,8 @@ export const researchWorker = new Worker(
 
               verify: (question, analysis, sources, signal) =>
                 verifyFindings(
-                  `${question} (Research as of ${project.checkpoint.plan?.brief?.currentDate ?? new Date().toISOString().slice(0, 10)}; scheduled releases are not available results.)`,
+                  `${question} (Research as of ${project.checkpoint.plan?.brief?.currentDate ??
+                    new Date().toISOString().slice(0, 10)}; scheduled releases are not available results.)`,
                   analysis,
                   sources,
                   signal,

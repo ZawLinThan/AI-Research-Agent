@@ -25,6 +25,7 @@ export const search = async (
 ): Promise<Source[]> => {
   const response = await scheduleProviderRequest("exa", 0, signal, async () => {
     await beforeProviderCall();
+
     return axios.post(
       "https://api.exa.ai/search",
       {
@@ -34,16 +35,16 @@ export const search = async (
         contents: { highlights: true },
         ...(scope === "Academic"
           ? {
-              includeDomains: [
-                "arxiv.org",
-                "pubmed.ncbi.nlm.nih.gov",
-                "pmc.ncbi.nlm.nih.gov",
-                "nature.com",
-                "science.org",
-                "acm.org",
-                "ieee.org",
-              ],
-            }
+            includeDomains: [
+              "arxiv.org",
+              "pubmed.ncbi.nlm.nih.gov",
+              "pmc.ncbi.nlm.nih.gov",
+              "nature.com",
+              "science.org",
+              "acm.org",
+              "ieee.org",
+            ],
+          }
           : {}),
       },
       {
@@ -134,7 +135,10 @@ export const prepareSearchReview = (
     if (debug) {
       console.log("query: ", query);
       console.log("resultCount: ", sources.length);
-      for (const source of sources.slice(0, 3)) loggingSource(source);
+
+      for (const source of sources.slice(0, 3)) {
+        loggingSource(source);
+      }
     }
 
     const summary: QuerySearchSummary = {
@@ -148,6 +152,7 @@ export const prepareSearchReview = (
           .map((text) => text.slice(0, 250)),
       })),
     };
+
     while (
       JSON.stringify(summary).length > perQuery &&
       summary.topResults.length
@@ -226,14 +231,16 @@ export const reviewSearch = async (
 
     Output contract:
     - Return ALL these fields, including reason:
-      {"sufficient":false,"relevanceScore":0.5,"coverageScore":0.5,"sourceQualityScore":0.5,"missingEvidence":[],"weakAreas":[],"followUpQueries":[],"reason":"Brief explanation of the decision."}
+      {"sufficient":false,"relevanceScore":0.5,"coverageScore":0.5,"sourceQualityScore":0.5,"missingEvidence":[],
+      "weakAreas":[],"followUpQueries":[],"reason":"Brief explanation of the decision."}
     - The example illustrates the structure; determine the values from the supplied evidence.
     - Scores are numbers between 0 and 1, not percentages or strings.
     - missingEvidence and weakAreas each contain at most 3 strings of at most 200 characters.
     - followUpQueries contains at most 2 distinct queries, each 3–300 characters.
     - followUpQueries must queries that answer the missing areas of the question. 
     - followUpQueries must not be questions. They must be concise followUp queries
-    - Return no follow-up queries when sufficient=true; otherwise target meaningful gaps and avoid already searched queries.
+    - Return no follow-up queries when sufficient=true; otherwise target meaningful gaps and 
+    avoid already searched queries.
     - reason is required and must contain 1–400 characters. Keep the entire response concise.
 
     When generating follow-up queries:
@@ -262,6 +269,7 @@ export const searchWeb = async (query: string, numResults = 5) => {
   requireExaKey();
   const checked = querySchema.parse(query);
   const count = z.number().int().min(1).max(10).parse(numResults);
+
   return exaClient.search(checked, {
     type: "auto",
     numResults: count,
@@ -278,6 +286,7 @@ export const extractWeb = async (urls: string[]) => {
         .url()
         .refine((value) => {
           const url = new URL(value);
+
           return (
             ["http:", "https:"].includes(url.protocol) &&
             !url.username &&
@@ -288,5 +297,6 @@ export const extractWeb = async (urls: string[]) => {
     .min(1)
     .max(10)
     .parse(urls);
+
   return exaClient.getContents([...new Set(checked)], { highlights: true });
 };
