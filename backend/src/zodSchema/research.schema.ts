@@ -11,26 +11,83 @@ export const requestSchema = z.object({
 
 export type ResearchInput = z.infer<typeof requestSchema>;
 
-export const researchBriefSchema = z.object({
-  originalQuestion: z.string(),
-  intent: z.string(),
-  entities: z.array(z.string()),
-  domain: z.string(),
-  answerShape: z.enum(["comparison", "overview", "causal", "timeline"]),
-  currentDate: z.string(),
-  entityResolutions: z
-    .array(
-      z.object({
-        requestedName: z.string(),
-        canonicalName: z.string(),
-        ticker: z.string().optional(),
-        note: z.string(),
-        sourceUrl: z.string().url().optional(),
-        status: z.enum(["verified", "uncertain"]),
-      }),
-    )
-    .optional(),
-});
+export const researchBriefSchema = z
+  .object({
+    originalQuestion: z.string(),
+    intent: z.string(),
+    entities: z.array(z.string()),
+    domain: z.enum([
+      "technology",
+      "healthcare",
+      "energy", 
+      "consumer", 
+      "industrial", 
+      "financial", 
+      "materials",
+      "real_estate",
+      "telecom", 
+      "general",
+    ]),
+    answerShape: z.enum([
+      "comparison",
+      "overview",
+      "ranking",
+      "causal",
+      "trajectory",
+      "definition",
+    ]),
+    currentDate: z.string(),
+    entityResolutions: z
+      .array(
+        z.object({
+          requestedName: z.string(),
+          canonicalName: z.string(),
+          ticker: z.string().optional(),
+          note: z.string(),
+          sourceUrl: z.string().url().optional(),
+          status: z.enum(["verified", "uncertain"]),
+        }),
+      )
+      .optional(),
+    periodPolicy: z
+      .object({
+        mode: z.enum(["shared", "as_of", "open"]),
+        period: z.string().optional(),
+        rationale: z.string().optional(),
+      })
+      .optional(),
+  })
+  .superRefine((brief, ctx) => {
+    const needsShared = brief.answerShape === "comparison";
+    const needsAsOf = brief.answerShape === "ranking";
+
+    if (needsShared || needsAsOf) {
+      const expectedMode = needsShared ? "shared" : "as_of";
+      if (brief.periodPolicy?.mode !== expectedMode) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["periodPolicy", "mode"],
+          message: `${brief.answerShape} requires periodPolicy.mode = "${expectedMode}".`,
+        });
+      }
+      if (!brief.periodPolicy?.period) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["periodPolicy", "period"],
+          message: `${brief.answerShape} requires an explicit period token (e.g. "FY2025", "Q3-2026", "2026-11-18").`,
+        });
+      }
+    }
+
+    // Shapes that don't need a period must not claim a "shared" one.
+    if (!needsShared && !needsAsOf && brief.periodPolicy?.mode === "shared") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["periodPolicy", "mode"],
+        message: `periodPolicy.mode = "shared" is only valid for comparison questions.`,
+      });
+    }
+  });
 
 export type ResearchBrief = z.infer<typeof researchBriefSchema>;
 

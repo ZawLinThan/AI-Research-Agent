@@ -156,7 +156,6 @@ export const researchWorker = new Worker(
                   depth,
                   scope,
                   signal,
-                  undefined,
                   checkpoint,
                 ),
               search: (searches, question, plan, scope, signal, checkpoint) =>

@@ -11,14 +11,13 @@ export const createResearchPlan = async (
   depth: string,
   scope: string,
   signal?: AbortSignal,
-  deps = { initial: createInitialPlan, review: reviewPlan },
   checkpoint?: (plan: ResearchPlan) => Promise<void>,
 ): Promise<ResearchPlan> => {
   if (signal?.aborted) {
     throw new RunStopped("Run stopped");
   }
 
-  const plan = await deps.initial(question, depth, scope, signal);
+  const plan = await createInitialPlan(question, depth, scope, signal);
   const issues = planIssues(plan, depth);
 
   if (issues.length) {
@@ -33,7 +32,7 @@ export const createResearchPlan = async (
   const warnings = [...(plan.warnings ?? [])];
 
   try {
-    const review = await deps.review(question, plan, signal);
+    const review = await reviewPlan(question, plan, signal);
     reviews = [review];
 
     if (!review.valid) {
